@@ -1,0 +1,10 @@
+[package]
+name = "col"
+version = "0.1.0"
+edition = "2021"
+authors = ["Volker Kempert <volker.kemper@almedso.de"]
+
+[dependencies]
+num_enum = { version = "0.5.7", default-features = false } # disable the default feature fits to  no-std
+enum-display-derive = "0.1.1"
+log = "0.4"
