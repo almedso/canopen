@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use log::{debug, error, warn, info };
+use log::{debug, error, info };
 use clap_verbosity_flag::{Verbosity};
 use std::io::Write;
 use chrono::Local;
@@ -9,6 +9,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
+use hex_slice::AsHex;
 
 use col;
 
@@ -61,8 +62,8 @@ enum Commands {
     /// Monitor traffic
     Mon  {
         /// NodeId - range 0..127
-        #[clap(short, long)]
-        node: Option<u8>,
+        #[clap(short, long,  multiple_occurrences(true))]
+        nodes: Vec<u8>,
     },
 
 }
@@ -99,26 +100,43 @@ fn main() {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
             }
             Some(Commands::Wod { node, index, subindex, value }) => {
-                    info!("Read Object Directory {}@{},{} -> {}", node, index, subindex, value);
-                    let frame = CANFrame::new(0x1, &[0], false, false).unwrap();
-                    // can_socket.write_frame(frame)?.await?;
-                    can_socket.write_frame(frame).unwrap().await;
-                    // match can_socket.write_frame(frame) {
-                    //     Ok(x) => x.await,
-                    //     Err(error) => { error!("Error writing to {}: {}", cli.interface, error); quit::with_code(1); }
-                    // }
+                    info!("Write Communication Object: {}@{},{} -> {}", node, index, subindex, value);
+
+                    let mut sdo_client = col::canopen::sdo_client::SDOClient::new(*node);
+
+                    let frame: CANFrame = sdo_client.upload_frame(*index, *subindex, &[0xA, 0xB, 0xC, 0xD]).unwrap().into();
+
+                    // let frame = CANFrame::new(0x1, &[0], false, false).unwrap();
+
+                    match 
+                        match can_socket.write_frame(frame) {
+                            Ok(x) => x,
+                            Err(error) => { error!("Error instancing write {}: {}", cli.interface, error); quit::with_code(1); }
+                        }.await {
+                            Ok(_) => (),
+                            Err(error) => { error!("Error writing to {}: {}", cli.interface, error); quit::with_code(1); }
+                    }
+
                     debug!("Waiting 3 seconds");
                     Delay::new(Duration::from_secs(3)).await;
             }
-            Some(Commands::Mon { node }) => {
-                match node {
-                    Some(n) => { info!("Monitor traffic for node {}", n); }
-                    None => { info!("Monitor all traffic"); }
+            Some(Commands::Mon { nodes }) => {
+                if nodes.len() > 0 {
+                    info!("Monitor traffic for node {:02x}", nodes.as_hex());
+                    //     nodes.iter().map(|x| {format!("{%x} ")}).join()
+                    // ); 
+                } else  {
+                    info!("Monitor all traffic");
                 }
                 while let Some(Ok(frame)) = can_socket.next().await {
-                        let (frame_type, node_id ) = col::extract_node_and_type(frame.id());
-                        warn!("Frame: {} node-id: {}: payload", frame_type, node_id, );
-
+                    match col::extract_frame_type_and_node_id(frame.id()) {
+                        Ok((frame_type, node_id )) => {
+                            if nodes.is_empty() || nodes.contains(&node_id) {
+                                println!("Frame: {} node-id: {}: payload {:02x}", frame_type, node_id, frame.data().as_hex());              
+                            } 
+                        }
+                        Err(e) => error!("{}", e),
+                    }
                 }
             }
             None => {}

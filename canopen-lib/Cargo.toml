@@ -8,3 +8,8 @@ authors = ["Volker Kempert <volker.kemper@almedso.de"]
 num_enum = { version = "0.5.7", default-features = false } # disable the default feature fits to  no-std
 enum-display-derive = "0.1.1"
 log = "0.4"
+failure = "0.1.2"
+encoding = "0.2.33"
+byteorder = "1.4.3"
+num-traits = "0.2.5"
+tokio-socketcan = "0.3.1"
