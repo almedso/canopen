@@ -13,6 +13,12 @@ use hex_slice::AsHex;
 
 use col;
 
+use futures::{
+    future::FutureExt, // for `.fuse()`
+    pin_mut,
+    select,
+};
+
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -27,7 +33,6 @@ struct Cli {
     #[clap(subcommand)]
     command: Option<Commands>,
 }
-
 
 #[derive(Subcommand)]
 enum Commands {
@@ -68,6 +73,58 @@ enum Commands {
 
 }
 
+async fn client_server_communication_timeout() -> () {
+    debug!("Set response timeout to 3 seconds");
+    let _timeout = Delay::new(Duration::from_secs(3)).await;
+}
+
+async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value: u32) -> () {
+    let mut sdo_client = col::canopen::sdo_client::SDOClient::new(node);
+
+    let frame: CANFrame = sdo_client.upload_frame(index, subindex, &[0xA, 0xB, 0xC, 0xD]).unwrap().into();
+
+    // let frame = CANFrame::new(0x1, &[0], false, false).unwrap();
+    match 
+        match can_socket.write_frame(frame) {
+            Ok(x) => x,
+            Err(error) => { error!("Error instancing write: {}", error); quit::with_code(1); }
+        }.await {
+            Ok(_) => (),
+            Err(error) => { error!("Error writing: {}", error); quit::with_code(1); }
+    }
+
+    // read the response
+    while let Some(Ok(frame)) = can_socket.next().await {
+        match col::extract_frame_type_and_node_id(frame.id()) {
+            Ok((frame_type, node_id )) => {
+                if node_id == node && frame_type == col::frame::FrameType::SsdoTx {
+                    // check the index and subindex match and command byte
+                    break;             
+                } 
+            }
+            Err(e) => {
+                error!("{}", e);
+                break; 
+            }
+        }
+    }
+}
+
+async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value: u32) {
+    let worker = write_remote_object(can_socket, node, index, subindex, value).fuse();
+    let timeout = client_server_communication_timeout().fuse();
+
+    pin_mut!(worker, timeout);
+
+    select! {
+        () = worker => info!("Remote object has been updated"),
+        () = timeout => {
+            error!("Error: Object directory writing not acknowledged within 3 sec timeout");
+            quit::with_code(1);
+        }
+    }
+}
+
 
 #[quit::main]
 fn main() {
@@ -100,25 +157,8 @@ fn main() {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
             }
             Some(Commands::Wod { node, index, subindex, value }) => {
-                    info!("Write Communication Object: {}@{},{} -> {}", node, index, subindex, value);
-
-                    let mut sdo_client = col::canopen::sdo_client::SDOClient::new(*node);
-
-                    let frame: CANFrame = sdo_client.upload_frame(*index, *subindex, &[0xA, 0xB, 0xC, 0xD]).unwrap().into();
-
-                    // let frame = CANFrame::new(0x1, &[0], false, false).unwrap();
-
-                    match 
-                        match can_socket.write_frame(frame) {
-                            Ok(x) => x,
-                            Err(error) => { error!("Error instancing write {}: {}", cli.interface, error); quit::with_code(1); }
-                        }.await {
-                            Ok(_) => (),
-                            Err(error) => { error!("Error writing to {}: {}", cli.interface, error); quit::with_code(1); }
-                    }
-
-                    debug!("Waiting 3 seconds");
-                    Delay::new(Duration::from_secs(3)).await;
+                info!("Write Communication Object: {}@{},{} -> {}", node, index, subindex, value);
+                write_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex, *value);
             }
             Some(Commands::Mon { nodes }) => {
                 if nodes.len() > 0 {
