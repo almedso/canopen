@@ -5,14 +5,15 @@ use std::io::Cursor;
 
 type Result<T> = std::result::Result<T, Error>;
 
-enum SDOResult {
+#[derive(Debug)]
+pub enum SDOResult {
     Success,
     Failure,
     UnknownResult(u8),
 }
 
 #[derive(Fail, Debug)]
-enum SDOAbortCode {
+pub enum SDOAbortCode {
     #[fail(display = "Unknown abort code")]
     UnknownAbortCode,
     #[fail(display = "Toggle bit not alternated")]
@@ -128,7 +129,8 @@ impl From<u8> for SDOResult {
     }
 }
 
-struct SDOServerReponse {
+#[derive(Debug)]
+pub struct SDOServerReponse {
     result: SDOResult,
     index: u16,
     subindex: u8,
@@ -139,10 +141,10 @@ impl SDOServerReponse {
     pub fn parse<Frame: Into<CANOpenFrame>>(frame: Frame) -> Result<SDOServerReponse> {
         let frame: CANOpenFrame = frame.into();
         Ok(SDOServerReponse {
-            result: frame.data[0].try_into()?,
-            index: Cursor::new(&frame.data[1..=2]).read_u16::<LittleEndian>()?,
-            subindex: frame.data[3],
-            data: Cursor::new(&frame.data[4..]).read_u64::<LittleEndian>()?,
+            result: frame.data()[0].try_into()?,
+            index: Cursor::new(&frame.data()[1..=2]).read_u16::<LittleEndian>()?,
+            subindex: frame.data()[3],
+            data: Cursor::new(&frame.data()[4..]).read_u64::<LittleEndian>()?,
         })
     }
 }
@@ -173,8 +175,8 @@ impl SDOClient {
     pub fn new(sdo_server_node_id: u8) -> SDOClient {
         const SDO_RECEIVE : u32 = 0x600;
         const SDO_TRANSMIT : u32 = 0x580;
-        SDOClient { 
-            node_id: sdo_server_node_id, 
+        SDOClient {
+            node_id: sdo_server_node_id,
             rx_address: SDO_RECEIVE,
             tx_address: SDO_TRANSMIT,
         }

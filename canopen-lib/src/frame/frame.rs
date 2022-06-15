@@ -17,94 +17,8 @@ pub enum CANOpenFrameError {
     InvalidDataLength { length: usize },
 }
 
-#[derive(Debug, PartialEq)]
-pub struct CANOpenFrame {
-    pub cob_id: u32,
-    pub length: u8,
-    pub data: [u8; 8],
-    pub is_rtr: bool,
-}
-
-impl std::fmt::Display for CANOpenFrame {
-    fn fmt(
-        self: &Self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "{:03X} [{}]\t", self.cob_id, self.length)?;
-
-        for byte in self.data.iter() {
-            write!(f, "{:02X} ", byte);
-        }
-
-        Ok(())
-    }
-}
-
-pub type CANOpenFrameResult = Result<CANOpenFrame, Error>;
-
-impl CANOpenFrame {
-    pub fn new(cob_id: u32, data: &[u8]) -> CANOpenFrameResult {
-        CANOpenFrame::new_with_rtr(cob_id, data, false)
-    }
-
-    pub fn new_rtr(cob_id: u32, data: &[u8]) -> CANOpenFrameResult {
-        CANOpenFrame::new_with_rtr(cob_id, data, true)
-    }
-
-    pub fn new_with_rtr(cob_id: u32, data: &[u8], is_rtr: bool) -> CANOpenFrameResult {
-        if cob_id > 0x77F {
-            return Err(CANOpenFrameError::InvalidCOBID { cob_id }.into());
-        }
-        if data.len() > 8 {
-            return Err(CANOpenFrameError::InvalidDataLength { length: data.len() }.into());
-        }
-
-        let mut frame = CANOpenFrame {
-            cob_id,
-            length: data.len() as u8,
-            data: [0; 8],
-            is_rtr,
-        };
-
-        frame.data[..data.len()].clone_from_slice(&data[..]);
-
-        Ok(frame)
-    }
-
-    pub fn cob_id(self: &Self) -> u32 {
-        self.cob_id
-    }
-
-    pub fn length(self: &Self) -> u8 {
-        self.length
-    }
-
-    pub fn data(self: &Self) -> &[u8; 8] {
-        &self.data
-    }
-
-    pub fn is_rtr(self: &Self) -> bool {
-        self.is_rtr
-    }
-}
-
-
-impl Into<CANFrame> for CANOpenFrame {
-    fn into(self) -> CANFrame {
-        // every CANOpen frame is a CAN frame this conversion shall not cause an error
-        CANFrame::new(self.cob_id(), self.data(), self.is_rtr(), false).unwrap() 
-    }
-}
-
-// impl TryFrom<CANFrame> for CANOpenFrame {
-//     type Error = ;
-//     fn try_from(frame: CANFrame) -> Result<Self, Self::Error> {
-
-//     }
-// }
-
 #[allow(non_camel_case_types, dead_code)]
-#[derive(Display)]
+#[derive(Display, Copy, Clone)]
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 pub enum FrameType {
@@ -126,8 +40,111 @@ pub enum FrameType {
     // Unused_1111, causes an error
 }
 
-pub fn extract_frame_type_and_node_id(cob_id: u32) -> Result <( FrameType, u8), CANOpenFrameError> {
-    if cob_id > 0x77F { // 0x77f is equivalent 11 bit 
+#[derive(Debug, PartialEq)]
+pub struct CANOpenFrame {
+    _node_id: u8,
+    _frame_type: FrameType,
+    _length: u8,
+    _data: [u8; 8],
+    _is_rtr: bool,
+}
+
+impl std::fmt::Display for CANOpenFrame {
+    fn fmt(
+        self: &Self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "{}: {:02X} [{}]\t", self._frame_type, self._node_id, self._length)?;
+
+        for byte in self._data.iter() {
+            write!(f, "{:02X} ", byte);
+        }
+
+        Ok(())
+    }
+}
+
+pub type CANOpenFrameResult = Result<CANOpenFrame, Error>;
+
+impl CANOpenFrame {
+    pub fn new(cob_id: u32, data: &[u8]) -> CANOpenFrameResult {
+        CANOpenFrame::new_with_rtr(cob_id, data, false)
+    }
+
+    pub fn new_rtr(cob_id: u32, data: &[u8]) -> CANOpenFrameResult {
+        CANOpenFrame::new_with_rtr(cob_id, data, true)
+    }
+
+    pub fn new_with_rtr(cob_id: u32, data: &[u8], is_rtr: bool) -> CANOpenFrameResult {
+        let ( _frame_type, _node_id) = extract_frame_type_and_node_id(cob_id)?;
+
+        if data.len() > 8 {
+            return Err(CANOpenFrameError::InvalidDataLength { length: data.len() }.into());
+        }
+
+        let mut frame = CANOpenFrame {
+            _node_id,
+            _frame_type,
+            _length: data.len() as u8,
+            _data: [0; 8],
+            _is_rtr: is_rtr,
+        };
+
+        frame._data[..data.len()].clone_from_slice(&data[..]);
+
+        Ok(frame)
+    }
+
+    #[inline(always)]
+    pub fn node_id(self: &Self) -> u8 {
+        self._node_id
+    }
+
+    #[inline(always)]
+    pub fn frame_type(self: &Self) -> FrameType {
+        self._frame_type
+    }
+
+    #[inline(always)]
+    pub fn length(self: &Self) -> u8 {
+        self._length
+    }
+
+    #[inline(always)]
+    pub fn data(self: &Self) -> &[u8; 8] {
+        &self._data
+    }
+
+    #[inline(always)]
+    pub fn is_rtr(self: &Self) -> bool {
+        self._is_rtr
+    }
+
+    #[inline(always)]
+    pub fn cob_id(self: &Self) -> u32 {
+        const TYPE_START_BIT: u8 = 7;
+        self._node_id as u32 + ((self._frame_type as u32) << TYPE_START_BIT)
+
+    }
+}
+
+
+impl Into<CANFrame> for CANOpenFrame {
+    fn into(self) -> CANFrame {
+        // every CANOpen frame is a CAN frame this conversion shall not cause an error
+        CANFrame::new(self.cob_id(), self.data(), self.is_rtr(), false).unwrap()
+    }
+}
+
+impl TryFrom<CANFrame> for CANOpenFrame {
+    type Error = Error;
+    fn try_from(frame: CANFrame) -> Result<Self, Self::Error> {
+        CANOpenFrame::new_with_rtr(frame.id(), frame.data(), frame.is_rtr())
+    }
+}
+
+fn extract_frame_type_and_node_id(cob_id: u32) -> Result <( FrameType, u8), CANOpenFrameError> {
+    if cob_id > 0x77F { // 0x77f is equivalent 11 bit
         return Err(CANOpenFrameError::InvalidCOBID { cob_id }.into());
     }
     const TYPE_START_BIT: u8 = 7;
