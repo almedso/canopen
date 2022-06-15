@@ -81,32 +81,43 @@ async fn client_server_communication_timeout() -> () {
 async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value: u32) -> () {
     let mut sdo_client = col::canopen::sdo_client::SDOClient::new(node);
 
-    let frame: CANFrame = sdo_client.upload_frame(index, subindex, &[0xA, 0xB, 0xC, 0xD]).unwrap().into();
+    let buffer: [u8; 4] = [
+        (( value >> 24 ) & 0xff_u32) as u8,
+        (( value >> 16 ) & 0xff_u32) as u8,
+        (( value >> 8 ) & 0xff_u32) as u8,
+        (value & 0xff_u32) as u8,
+    ];
+    // let buffer: [u8; 1] = [
+    //     (value & 0xff_u32) as u8,
+    // ];
 
-    // let frame = CANFrame::new(0x1, &[0], false, false).unwrap();
-    match 
+
+    let frame: CANFrame = sdo_client.upload_frame(index, subindex, &buffer).unwrap().into();
+
+    match
         match can_socket.write_frame(frame) {
             Ok(x) => x,
             Err(error) => { error!("Error instancing write: {}", error); quit::with_code(1); }
-        }.await {
-            Ok(_) => (),
-            Err(error) => { error!("Error writing: {}", error); quit::with_code(1); }
+        }.await
+    {
+        Ok(_) => (),
+        Err(error) => { error!("Error writing: {}", error); quit::with_code(1); }
     }
 
     // read the response
     while let Some(Ok(frame)) = can_socket.next().await {
-        match col::extract_frame_type_and_node_id(frame.id()) {
-            Ok((frame_type, node_id )) => {
-                if node_id == node && frame_type == col::frame::FrameType::SsdoTx {
-                    // check the index and subindex match and command byte
-                    break;             
-                } 
+        match col::CANOpenFrame::try_from(frame) {
+            Ok(frame) => {
+                if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SsdoTx {
+                    break;
+                }
             }
             Err(e) => {
                 error!("{}", e);
-                break; 
+                break;
             }
         }
+
     }
 }
 
@@ -120,6 +131,54 @@ async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, 
         () = worker => info!("Remote object has been updated"),
         () = timeout => {
             error!("Error: Object directory writing not acknowledged within 3 sec timeout");
+            quit::with_code(1);
+        }
+    }
+}
+
+async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) -> () {
+    // const SDO_RECEIVE : u32 = 0x600;
+    const SDO_TRANSMIT : u32 = 0x580;
+
+    let frame : CANFrame = col::upload_request_frame(node, SDO_TRANSMIT, index, subindex).unwrap().into();
+
+    match
+        match can_socket.write_frame(frame) {
+            Ok(x) => x,
+            Err(error) => { error!("Error instancing write: {}", error); quit::with_code(1); }
+        }.await
+    {
+        Ok(_) => (),
+        Err(error) => { error!("Error writing: {}", error); quit::with_code(1); }
+    }
+
+    // read the response
+    while let Some(Ok(frame)) = can_socket.next().await {
+        match col::CANOpenFrame::try_from(frame) {
+            Ok(frame) => {
+                if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SsdoTx {
+                    break;
+                }
+            }
+            Err(e) => {
+                error!("{}", e);
+                break;
+            }
+        }
+
+    }
+}
+
+async fn read_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) {
+    let worker = read_remote_object(can_socket, node, index, subindex).fuse();
+    let timeout = client_server_communication_timeout().fuse();
+
+    pin_mut!(worker, timeout);
+
+    select! {
+        () = worker => info!("Remote object has been updated"),
+        () = timeout => {
+            error!("Error: Object directory reading not responded within 3 sec timeout");
             quit::with_code(1);
         }
     }
@@ -155,25 +214,24 @@ fn main() {
         match &cli.command {
             Some(Commands::Rod { node, index, subindex }) => {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
+                read_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex).await ;
             }
             Some(Commands::Wod { node, index, subindex, value }) => {
                 info!("Write Communication Object: {}@{},{} -> {}", node, index, subindex, value);
-                write_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex, *value);
+                write_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex, *value).await ;
             }
             Some(Commands::Mon { nodes }) => {
                 if nodes.len() > 0 {
                     info!("Monitor traffic for node {:02x}", nodes.as_hex());
-                    //     nodes.iter().map(|x| {format!("{%x} ")}).join()
-                    // ); 
                 } else  {
                     info!("Monitor all traffic");
                 }
                 while let Some(Ok(frame)) = can_socket.next().await {
-                    match col::extract_frame_type_and_node_id(frame.id()) {
-                        Ok((frame_type, node_id )) => {
-                            if nodes.is_empty() || nodes.contains(&node_id) {
-                                println!("Frame: {} node-id: {}: payload {:02x}", frame_type, node_id, frame.data().as_hex());              
-                            } 
+                    match col::CANOpenFrame::try_from(frame) {
+                        Ok(frame) => {
+                            if nodes.is_empty() || nodes.contains(&frame.node_id()) {
+                                println!("{}", frame);
+                            }
                         }
                         Err(e) => error!("{}", e),
                     }
