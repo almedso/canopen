@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ArgEnum};
 use log::{debug, error, info };
 use clap_verbosity_flag::{Verbosity};
 use std::io::Write;
@@ -34,6 +34,14 @@ struct Cli {
     command: Option<Commands>,
 }
 
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+enum ValueType {
+    U8,
+    U16,
+    U32,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Read object directory
@@ -60,6 +68,10 @@ enum Commands {
         /// Object subindex - index 0x00 .. 0xff
         subindex: u8,
 
+        /// ValueType of the value
+        #[clap(arg_enum)]
+        value_type: ValueType,
+
         /// Object value - u32 for now
         value: u32,
     },
@@ -78,21 +90,30 @@ async fn client_server_communication_timeout() -> () {
     let _timeout = Delay::new(Duration::from_secs(3)).await;
 }
 
-async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value: u32) -> () {
-    let mut sdo_client = col::canopen::sdo_client::SDOClient::new(node);
+async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value_type: ValueType, value: u32) -> () {
 
-    let buffer: [u8; 4] = [
-        (( value >> 24 ) & 0xff_u32) as u8,
-        (( value >> 16 ) & 0xff_u32) as u8,
-        (( value >> 8 ) & 0xff_u32) as u8,
-        (value & 0xff_u32) as u8,
-    ];
-    // let buffer: [u8; 1] = [
-    //     (value & 0xff_u32) as u8,
-    // ];
-
-
-    let frame: CANFrame = sdo_client.upload_frame(index, subindex, &buffer).unwrap().into();
+    const SDO_TRANSMIT : u32 = 0x580;
+    let frame: CANFrame = match value_type {
+        ValueType::U8 => {
+            col::download_1_byte_frame(node, SDO_TRANSMIT, index, subindex, value as u8).unwrap().into()
+        }
+        ValueType::U16 => {
+            let buffer: [u8; 2] = [
+                (( value >> 8 ) & 0xff_u32) as u8,
+                (value & 0xff_u32) as u8,
+                ];
+            col::download_2_bytes_frame(node, SDO_TRANSMIT, index, subindex, buffer).unwrap().into()
+        }
+        ValueType::U32 => {
+            let buffer: [u8; 4] = [
+                (( value >> 24 ) & 0xff_u32) as u8,
+                (( value >> 16 ) & 0xff_u32) as u8,
+                (( value >> 8 ) & 0xff_u32) as u8,
+                (value & 0xff_u32) as u8,
+                ];
+            col::download_4_bytes_frame(node, SDO_TRANSMIT, index, subindex, buffer).unwrap().into()
+        }
+    };
 
     match
         match can_socket.write_frame(frame) {
@@ -121,8 +142,8 @@ async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, s
     }
 }
 
-async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value: u32) {
-    let worker = write_remote_object(can_socket, node, index, subindex, value).fuse();
+async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value_type: ValueType, value: u32) {
+    let worker = write_remote_object(can_socket, node, index, subindex, value_type, value).fuse();
     let timeout = client_server_communication_timeout().fuse();
 
     pin_mut!(worker, timeout);
@@ -137,11 +158,8 @@ async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, 
 }
 
 async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) -> () {
-    // const SDO_RECEIVE : u32 = 0x600;
     const SDO_TRANSMIT : u32 = 0x580;
-
     let frame : CANFrame = col::upload_request_frame(node, SDO_TRANSMIT, index, subindex).unwrap().into();
-
     match
         match can_socket.write_frame(frame) {
             Ok(x) => x,
@@ -216,9 +234,9 @@ fn main() {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
                 read_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex).await ;
             }
-            Some(Commands::Wod { node, index, subindex, value }) => {
+            Some(Commands::Wod { node, index, subindex, value_type, value }) => {
                 info!("Write Communication Object: {}@{},{} -> {}", node, index, subindex, value);
-                write_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex, *value).await ;
+                write_remote_object_with_acknowledge_check(&mut can_socket, *node, *index, *subindex, *value_type, *value).await ;
             }
             Some(Commands::Mon { nodes }) => {
                 if nodes.len() > 0 {

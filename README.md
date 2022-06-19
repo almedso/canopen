@@ -23,5 +23,14 @@ Licensed under MIT license [LICENSE-MIT](LICENSE-MIT).
 
 # Todo
 
-1. dig into sdo frame display/output - better output
-2. rework sdo (sdo client -> sdo get rid of processing just datatype presentation)
+1. Test SDO updated implementation wod / read
+2. test sdo monitor output
+3. implement PDO (mapped output)
+
+
+
+## References
+
+- https://canopennode.github.io/index.html
+- https://www.waycon.de/fileadmin/seilzugsensoren/CANopen-Handbuch.pdf
+- https://edu.elektronikschule.de/~amann/hambsch/can/CANopen

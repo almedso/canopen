@@ -2,13 +2,18 @@ use super::*;
 use byteorder::{LittleEndian, ReadBytesExt};
 use failure::{Error, Fail};
 use std::io::Cursor;
+use std::fmt;
+
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Fail, Debug)]
 pub enum SDOResult {
+    #[fail(display = "Success")]
     Success,
+    #[fail(display = "Failure")]
     Failure,
+    #[fail(display = "Return Code: {} ", _0)]
     UnknownResult(u8),
 }
 
@@ -130,76 +135,59 @@ impl From<u8> for SDOResult {
 }
 
 #[derive(Debug)]
-pub struct SDOServerReponse {
+pub struct SDOError {
+    msg: &'static str
+}
+
+impl SDOError {
+    pub fn new(msg: &'static str) -> Self {
+        SDOError{ msg }
+    }
+}
+
+impl std::error::Error for SDOError {}
+
+impl fmt::Display for SDOError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+
+#[derive(Debug)]
+pub struct SDOServerResponse {
     result: SDOResult,
     index: u16,
     subindex: u8,
     data: u64,
 }
 
-impl SDOServerReponse {
-    pub fn parse<Frame: Into<CANOpenFrame>>(frame: Frame) -> Result<SDOServerReponse> {
-        let frame: CANOpenFrame = frame.into();
-        Ok(SDOServerReponse {
-            result: frame.data()[0].try_into()?,
-            index: Cursor::new(&frame.data()[1..=2]).read_u16::<LittleEndian>()?,
-            subindex: frame.data()[3],
-            data: Cursor::new(&frame.data()[4..]).read_u64::<LittleEndian>()?,
-        })
-    }
-}
-
-#[derive(Fail, Debug)]
-enum SDOUploadError {
-    #[fail(display = "No response received")]
-    NoResponseReceived,
-    #[fail(display = "Unknown result: {}", _0)]
-    UnknownResult(u8),
-    #[fail(display = "No output queue")]
-    NoOutputQueue,
-    #[fail(display = "Too mush data: {} bytes", _0)]
-    TooMuchData(usize),
-}
-
-#[derive(Debug)]
-struct SDOClientFrameListener {}
-
-#[derive(Debug)]
-pub struct SDOClient {
-    node_id: u8,
-    rx_address: u32,
-    tx_address: u32,
-}
-
-impl SDOClient {
-    pub fn new(sdo_server_node_id: u8) -> SDOClient {
-        const SDO_RECEIVE : u32 = 0x600;
-        const SDO_TRANSMIT : u32 = 0x580;
-        SDOClient {
-            node_id: sdo_server_node_id,
-            rx_address: SDO_RECEIVE,
-            tx_address: SDO_TRANSMIT,
-        }
-    }
-
-    pub fn upload_frame(self: &mut Self, index: u16, subindex: u8, data: &[u8]) -> CANOpenFrameResult {
-        match data {
-            [b0] => upload_1_byte_frame(self.node_id, self.rx_address, index, subindex, *b0),
-            [b0, b1] => upload_2_bytes_frame(self.node_id, self.rx_address, index, subindex, [*b0, *b1]),
-            [b0, b1, b2] => {
-                upload_3_bytes_frame(self.node_id, self.rx_address, index, subindex, [*b0, *b1, *b2])
-            }
-            [b0, b1, b2, b3] => upload_4_bytes_frame(
-                self.node_id,
-                self.rx_address,
-                index,
-                subindex,
-                [*b0, *b1, *b2, *b3],
-            ),
-            _ => Err(SDOUploadError::TooMuchData(data.len()).into()),
+impl SDOServerResponse {
+    pub fn parse(frame: &CANOpenFrame) -> Result<SDOServerResponse> {
+        match frame.frame_type()
+        {
+            FrameType::SsdoTx =>  Ok(SDOServerResponse {
+                result: frame.data()[0].try_into()?,
+                index: Cursor::new(&frame.data()[1..=2]).read_u16::<LittleEndian>()?,
+                subindex: frame.data()[3],
+                data: Cursor::new(&frame.data()[4..]).read_u64::<LittleEndian>()?,
+            }),
+            _ => Err(SDOError::new("SDO frame parse error").into())
         }
     }
 }
+
+impl std::fmt::Display for SDOServerResponse {
+    fn fmt(
+        self: &Self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::result::Result<(), std::fmt::Error> {
+            write!(f, "{} - {:04},{:02X} [{:x}]\t", self.result, self.index, self.subindex, self.data)?;
+            Ok(()
+        )
+        }
+}
+
 
 #[cfg(test)]
 mod tests {

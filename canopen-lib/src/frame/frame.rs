@@ -6,6 +6,8 @@ use enum_display_derive::*;
 use std::fmt::Display;
 use tokio_socketcan::CANFrame;
 
+use crate::SDOServerResponse;
+
 #[derive(Debug, Fail)]
 pub enum CANOpenFrameError {
     #[fail(display = "the COB-ID of this frame is invalid ({})", cob_id)]
@@ -56,8 +58,17 @@ impl std::fmt::Display for CANOpenFrame {
     ) -> std::result::Result<(), std::fmt::Error> {
         write!(f, "{}: {:02X} [{}]\t", self._frame_type, self._node_id, self._length)?;
 
-        for byte in self._data.iter() {
-            write!(f, "{:02X} ", byte);
+        match self._frame_type {
+            FrameType::SsdoTx => {
+                let sdo_response = SDOServerResponse::parse(self)
+                .map_err(|_| std::fmt::Error ) ?;
+                write!(f, "{}", sdo_response);
+            }
+            _ =>  {
+                for byte in self._data.iter() {
+                    write!(f, "{:02X} ", byte);
+                }
+            } 
         }
 
         Ok(())
@@ -91,7 +102,6 @@ impl CANOpenFrame {
         };
 
         frame._data[..data.len()].clone_from_slice(&data[..]);
-
         Ok(frame)
     }
 
