@@ -1,5 +1,5 @@
-use super::*;
 use super::super::split::Split;
+use super::*;
 
 #[derive(Debug, Copy, Clone)]
 pub enum State {
@@ -118,7 +118,7 @@ pub fn download_3_bytes_frame(
     CANOpenFrame::new(
         rx_address + u32::from(id),
         &[
-            0x27,  // command byte
+            0x27, // command byte
             index.lo(),
             index.hi(),
             subindex,
@@ -140,7 +140,7 @@ pub fn download_4_bytes_frame(
     CANOpenFrame::new(
         rx_address + u32::from(id),
         &[
-            0x23,  // command byte
+            0x23, // command byte
             index.lo(),
             index.hi(),
             subindex,
@@ -161,7 +161,7 @@ pub fn successful_download_acknowledgment_frame(
     CANOpenFrame::new(
         tx_address + u32::from(id),
         &[
-            0x60,  // command byte
+            0x60, // command byte
             index.lo(),
             index.hi(),
             subindex,
@@ -205,7 +205,7 @@ pub fn upload_request_frame(
     CANOpenFrame::new(
         rx_address + u32::from(id),
         &[
-            0x40,  // command byte
+            0x40, // command byte
             index.lo(),
             index.hi(),
             subindex,
@@ -251,7 +251,7 @@ pub fn upload_2_bytes_frame(
     CANOpenFrame::new(
         tx_address + u32::from(id),
         &[
-            0x4B,  // command byte - for 2 byte payload
+            0x4B, // command byte - for 2 byte payload
             index.lo(),
             index.hi(),
             subindex,
@@ -274,7 +274,7 @@ pub fn upload_3_bytes_frame(
     CANOpenFrame::new(
         tx_address + u32::from(id),
         &[
-            0x47,  // command byte - for 3 byte payload
+            0x47, // command byte - for 3 byte payload
             index.lo(),
             index.hi(),
             subindex,
@@ -297,7 +297,7 @@ pub fn upload_4_bytes_frame(
     CANOpenFrame::new(
         tx_address + u32::from(id),
         &[
-            0x43,  // command byte - for 4 byte payload
+            0x43, // command byte - for 4 byte payload
             index.lo(),
             index.hi(),
             subindex,

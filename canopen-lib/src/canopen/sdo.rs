@@ -2,7 +2,6 @@ use super::*;
 use failure::{Error, Fail};
 use std::fmt;
 
-
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Fail, Debug)]
@@ -134,12 +133,12 @@ impl From<u8> for SDOResult {
 
 #[derive(Debug)]
 pub struct SDOError {
-    msg: &'static str
+    msg: &'static str,
 }
 
 impl SDOError {
     pub fn new(msg: &'static str) -> Self {
-        SDOError{ msg }
+        SDOError { msg }
     }
 }
 
@@ -151,7 +150,6 @@ impl fmt::Display for SDOError {
     }
 }
 
-
 #[derive(Debug)]
 pub struct SDOServerResponse {
     pub result: SDOResult,
@@ -162,20 +160,20 @@ pub struct SDOServerResponse {
 
 impl SDOServerResponse {
     pub fn parse(frame: &CANOpenFrame) -> Result<SDOServerResponse> {
-        match frame.frame_type()
-        {
-
-            FrameType::SsdoTx |
-            FrameType::SsdoRx =>  {
+        match frame.frame_type() {
+            FrameType::SsdoTx | FrameType::SsdoRx => {
                 let data = frame.data();
                 Ok(SDOServerResponse {
                     result: data[0].into(),
                     index: (data[1] as u16) + ((data[2] as u16) << 8), // this is little endian
                     subindex: data[3],
-                    data: (data[4] as u32) + ((data[5] as u32) << 8) + ((data[6] as u32) << 16) + ((data[7] as u32) << 24), // this is little endian
+                    data: (data[4] as u32)
+                        + ((data[5] as u32) << 8)
+                        + ((data[6] as u32) << 16)
+                        + ((data[7] as u32) << 24), // this is little endian
                 })
-            },
-            _ => Err(SDOError::new("SDO frame parse error").into())
+            }
+            _ => Err(SDOError::new("SDO frame parse error").into()),
         }
     }
 }
@@ -186,16 +184,23 @@ impl std::fmt::Display for SDOServerResponse {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::result::Result<(), std::fmt::Error> {
         match self.result {
-            SDOResult::Failure =>
-                write!(f, "{} - {:#04x},{:#02x} {}\t", self.result, self.index, self.subindex, SDOAbortCode::from(self.data))?,
-            _ =>
-                write!(f, "{} - {:#04x},{:#02x} [{:#x}]\t", self.result, self.index, self.subindex, self.data)?,
-
+            SDOResult::Failure => write!(
+                f,
+                "{} - {:#04x},{:#02x} {}\t",
+                self.result,
+                self.index,
+                self.subindex,
+                SDOAbortCode::from(self.data)
+            )?,
+            _ => write!(
+                f,
+                "{} - {:#04x},{:#02x} [{:#x}]\t",
+                self.result, self.index, self.subindex, self.data
+            )?,
         }
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -203,7 +208,5 @@ mod tests {
 
     #[ignore]
     #[test]
-    fn main() {
-
-    }
+    fn main() {}
 }
