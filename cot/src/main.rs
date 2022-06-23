@@ -11,7 +11,7 @@ use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 use hex_slice::AsHex;
 
-use col;
+use col::{self, sdo::SDOServerResponse};
 
 use futures::{
     future::FutureExt, // for `.fuse()`
@@ -92,26 +92,26 @@ async fn client_server_communication_timeout() -> () {
 
 async fn write_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8, value_type: ValueType, value: u32) -> () {
 
-    const SDO_TRANSMIT : u32 = 0x580;
+    const SDO_RECEIVE : u32 = 0x600;
     let frame: CANFrame = match value_type {
         ValueType::U8 => {
-            col::download_1_byte_frame(node, SDO_TRANSMIT, index, subindex, value as u8).unwrap().into()
+            col::download_1_byte_frame(node, SDO_RECEIVE, index, subindex, value as u8).unwrap().into()
         }
         ValueType::U16 => {
-            let buffer: [u8; 2] = [
-                (( value >> 8 ) & 0xff_u32) as u8,
+            let buffer: [u8; 2] = [  // little endian encoded
                 (value & 0xff_u32) as u8,
+                (( value >> 8 ) & 0xff_u32) as u8,
                 ];
-            col::download_2_bytes_frame(node, SDO_TRANSMIT, index, subindex, buffer).unwrap().into()
+            col::download_2_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer).unwrap().into()
         }
         ValueType::U32 => {
-            let buffer: [u8; 4] = [
-                (( value >> 24 ) & 0xff_u32) as u8,
-                (( value >> 16 ) & 0xff_u32) as u8,
-                (( value >> 8 ) & 0xff_u32) as u8,
+            let buffer: [u8; 4] = [  // little endian encoded
                 (value & 0xff_u32) as u8,
-                ];
-            col::download_4_bytes_frame(node, SDO_TRANSMIT, index, subindex, buffer).unwrap().into()
+                (( value >> 8 ) & 0xff_u32) as u8,
+                (( value >> 16 ) & 0xff_u32) as u8,
+                (( value >> 24 ) & 0xff_u32) as u8,
+            ];
+            col::download_4_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer).unwrap().into()
         }
     };
 
@@ -158,8 +158,8 @@ async fn write_remote_object_with_acknowledge_check(can_socket: &mut CANSocket, 
 }
 
 async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) -> () {
-    const SDO_TRANSMIT : u32 = 0x580;
-    let frame : CANFrame = col::upload_request_frame(node, SDO_TRANSMIT, index, subindex).unwrap().into();
+    const SDO_RECEIVE : u32 = 0x600;
+    let frame : CANFrame = col::upload_request_frame(node, SDO_RECEIVE, index, subindex).unwrap().into();
     match
         match can_socket.write_frame(frame) {
             Ok(x) => x,
@@ -175,7 +175,14 @@ async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, su
         match col::CANOpenFrame::try_from(frame) {
             Ok(frame) => {
                 if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SsdoTx {
-                    break;
+                    let sdo_response = SDOServerResponse::parse(&frame).map_err(|x| error!("{}", x)).unwrap();
+                    if sdo_response.index == index && sdo_response.subindex == subindex {
+                        println!("CANOpen Object {:#06x},{:#04x} @ {:#04x}: {:#x}", index, subindex, node,  sdo_response.data);
+                        break;
+                    } else {
+                        println!("CANOpen -- Object {:#06x},{:#04x} @ {:#04x}: {:#x}", sdo_response.index, sdo_response.subindex, node,  sdo_response.data);
+                        break;
+                    }
                 }
             }
             Err(e) => {

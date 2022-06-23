@@ -1,7 +1,5 @@
 use super::*;
-use byteorder::{LittleEndian, ReadBytesExt};
 use failure::{Error, Fail};
-use std::io::Cursor;
 use std::fmt;
 
 
@@ -13,7 +11,7 @@ pub enum SDOResult {
     Success,
     #[fail(display = "Failure")]
     Failure,
-    #[fail(display = "Return Code: {} ", _0)]
+    #[fail(display = "Code Byte: {}", _0)]
     UnknownResult(u8),
 }
 
@@ -87,8 +85,8 @@ pub enum SDOAbortCode {
     DictionaryError,
 }
 
-impl From<u64> for SDOAbortCode {
-    fn from(abort_code: u64) -> Self {
+impl From<u32> for SDOAbortCode {
+    fn from(abort_code: u32) -> Self {
         match abort_code {
             0x0503_0000 => SDOAbortCode::ToggleBitNotAlternated,
             0x0504_0000 => SDOAbortCode::SDOProtocolTimedOut,
@@ -156,22 +154,27 @@ impl fmt::Display for SDOError {
 
 #[derive(Debug)]
 pub struct SDOServerResponse {
-    result: SDOResult,
-    index: u16,
-    subindex: u8,
-    data: u64,
+    pub result: SDOResult,
+    pub index: u16,
+    pub subindex: u8,
+    pub data: u32,
 }
 
 impl SDOServerResponse {
     pub fn parse(frame: &CANOpenFrame) -> Result<SDOServerResponse> {
         match frame.frame_type()
         {
-            FrameType::SsdoTx =>  Ok(SDOServerResponse {
-                result: frame.data()[0].try_into()?,
-                index: Cursor::new(&frame.data()[1..=2]).read_u16::<LittleEndian>()?,
-                subindex: frame.data()[3],
-                data: Cursor::new(&frame.data()[4..]).read_u64::<LittleEndian>()?,
-            }),
+
+            FrameType::SsdoTx |
+            FrameType::SsdoRx =>  {
+                let data = frame.data();
+                Ok(SDOServerResponse {
+                    result: data[0].into(),
+                    index: (data[1] as u16) + ((data[2] as u16) << 8), // this is little endian
+                    subindex: data[3],
+                    data: (data[4] as u32) + ((data[5] as u32) << 8) + ((data[6] as u32) << 16) + ((data[7] as u32) << 24), // this is little endian
+                })
+            },
             _ => Err(SDOError::new("SDO frame parse error").into())
         }
     }
@@ -182,10 +185,15 @@ impl std::fmt::Display for SDOServerResponse {
         self: &Self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::result::Result<(), std::fmt::Error> {
-            write!(f, "{} - {:04},{:02X} [{:x}]\t", self.result, self.index, self.subindex, self.data)?;
-            Ok(()
-        )
+        match self.result {
+            SDOResult::Failure =>
+                write!(f, "{} - {:#04x},{:#02x} {}\t", self.result, self.index, self.subindex, SDOAbortCode::from(self.data))?,
+            _ =>
+                write!(f, "{} - {:#04x},{:#02x} [{:#x}]\t", self.result, self.index, self.subindex, self.data)?,
+
         }
+        Ok(())
+    }
 }
 
 

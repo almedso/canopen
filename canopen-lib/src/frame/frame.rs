@@ -6,7 +6,8 @@ use enum_display_derive::*;
 use std::fmt::Display;
 use tokio_socketcan::CANFrame;
 
-use crate::SDOServerResponse;
+use super::super::sdo::SDOServerResponse;
+
 
 #[derive(Debug, Fail)]
 pub enum CANOpenFrameError {
@@ -59,7 +60,8 @@ impl std::fmt::Display for CANOpenFrame {
         write!(f, "{}: {:02X} [{}]\t", self._frame_type, self._node_id, self._length)?;
 
         match self._frame_type {
-            FrameType::SsdoTx => {
+            FrameType::SsdoTx |
+            FrameType::SsdoRx => {
                 let sdo_response = SDOServerResponse::parse(self)
                 .map_err(|_| std::fmt::Error ) ?;
                 write!(f, "{}", sdo_response);
@@ -121,8 +123,8 @@ impl CANOpenFrame {
     }
 
     #[inline(always)]
-    pub fn data(self: &Self) -> &[u8; 8] {
-        &self._data
+    pub fn data(self: &Self) -> [u8; 8] {
+        self._data
     }
 
     #[inline(always)]
@@ -138,11 +140,10 @@ impl CANOpenFrame {
     }
 }
 
-
 impl Into<CANFrame> for CANOpenFrame {
     fn into(self) -> CANFrame {
         // every CANOpen frame is a CAN frame this conversion shall not cause an error
-        CANFrame::new(self.cob_id(), self.data(), self.is_rtr(), false).unwrap()
+        CANFrame::new(self.cob_id(), &self.data(), self.is_rtr(), false).unwrap()
     }
 }
 
