@@ -44,6 +44,15 @@ enum ValueType {
     U64,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
+enum FrameType {
+    PDO,
+    SDO,
+    NMT,
+    EMG,
+    ERR,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Read object directory
@@ -102,6 +111,10 @@ enum Commands {
         /// NodeId - range 0..127
         #[clap(short, long, multiple_occurrences(true))]
         nodes: Vec<u8>,
+
+        /// FrameType
+        #[clap(arg_enum, short, long, multiple_occurrences(true))]
+        frame_types: Vec<FrameType>,
     },
 }
 
@@ -441,17 +454,82 @@ fn main() {
                 );
                 send_pdo(&mut can_socket, *cobid, *remote, *value_type, *value).await;
             }
-            Some(Commands::Mon { nodes }) => {
+            Some(Commands::Mon { nodes, frame_types }) => {
                 if nodes.len() > 0 {
                     info!("Monitor traffic for node {:02x}", nodes.as_hex());
                 } else {
-                    info!("Monitor all traffic");
+                    info!("Monitor traffic for all nodes");
                 }
+                if frame_types.len() > 0 {
+                    info!("Monitor traffic for frame types {:0?}", frame_types);
+                } else {
+                    info!("Monitor traffic for all frametypes");
+                }
+                let frame_types = frame_types
+                    .into_iter()
+                    .flat_map(|x| match *x {
+                        FrameType::PDO => [
+                            col::FrameType::Rpdo1,
+                            col::FrameType::Rpdo2,
+                            col::FrameType::Rpdo3,
+                            col::FrameType::Rpdo4,
+                            col::FrameType::Tpdo1,
+                            col::FrameType::Tpdo2,
+                            col::FrameType::Tpdo3,
+                            col::FrameType::Tpdo4,
+                        ],
+                        FrameType::SDO => [
+                            col::FrameType::SsdoRx,
+                            col::FrameType::SsdoTx,
+                            col::FrameType::SsdoRx,
+                            col::FrameType::SsdoTx,
+                            col::FrameType::SsdoRx,
+                            col::FrameType::SsdoTx,
+                            col::FrameType::SsdoRx,
+                            col::FrameType::SsdoTx,
+                        ],
+                        FrameType::NMT => [
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                            col::FrameType::Nmt,
+                        ],
+                        FrameType::EMG => [
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                        ],
+                        FrameType::ERR => [
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                            col::FrameType::NmtErrorControl,
+                        ],
+
+                    })
+                    .collect::<Vec<col::FrameType>>();
                 while let Some(Ok(frame)) = can_socket.next().await {
                     match col::CANOpenFrame::try_from(frame) {
                         Ok(frame) => {
                             if nodes.is_empty() || nodes.contains(&frame.node_id()) {
-                                println!("{}", frame);
+                                if frame_types.is_empty()
+                                    || frame_types.contains(&frame.frame_type())
+                                {
+                                    println!("{}", frame);
+                                }
                             }
                         }
                         Err(e) => error!("{}", e),

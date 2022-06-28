@@ -54,8 +54,8 @@ impl std::fmt::Display for CANOpenFrame {
     ) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{}: {:02X} [{}]\t",
-            self._frame_type, self._node_id, self._length
+            "{}: 0x{:02X} \t",
+            self._frame_type, self._node_id
         )?;
 
         match self._frame_type {
@@ -64,8 +64,11 @@ impl std::fmt::Display for CANOpenFrame {
                 write!(f, "{}", sdo_response);
             }
             _ => {
-                for byte in self._data.iter() {
-                    write!(f, "{:02X} ", byte);
+                if self._length > 0 && self._length < 9 {
+                    let data = &self._data[0..self._length as usize];
+                    for byte in data.iter() {
+                        write!(f, "{:02X} ", byte);
+                    }
                 }
             }
         }
@@ -139,7 +142,7 @@ impl CANOpenFrame {
 impl Into<CANFrame> for CANOpenFrame {
     fn into(self) -> CANFrame {
         // every CANOpen frame is a CAN frame this conversion shall not cause an error
-        CANFrame::new(self.cob_id(), &self.data(), self.is_rtr(), false).unwrap()
+        CANFrame::new(self.cob_id(), &self._data[0..self._length as usize], self.is_rtr(), false).unwrap()
     }
 }
 
