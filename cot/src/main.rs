@@ -3,6 +3,7 @@ use clap::{ArgEnum, Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use log::{debug, error, info};
 use std::io::Write;
+use std::ops::RangeInclusive;
 
 use futures_timer::Delay;
 use futures_util::StreamExt;
@@ -34,11 +35,13 @@ struct Cli {
     command: Option<Commands>,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
 enum ValueType {
+    None,
     U8,
     U16,
     U32,
+    U64,
 }
 
 #[derive(Subcommand)]
@@ -75,12 +78,53 @@ enum Commands {
         value: u32,
     },
 
+    /// write PDO
+    Pdo {
+        /// CobId - range 0x180...0x5ff aka 512 max
+        #[clap(value_parser = pdo_cobid_parser)]
+        cobid: u16,
+
+        /// Remote frame flag
+        #[clap(short, long)]
+        remote: bool,
+
+        /// ValueType of the value
+        #[clap(arg_enum)]
+        value_type: ValueType,
+
+        /// PDO payload in hexadecimal with leading 0x maximum 8 bytes
+        #[clap(value_parser = hex_number_parser)]
+        value: u64,
+    },
+
     /// Monitor traffic
     Mon {
         /// NodeId - range 0..127
         #[clap(short, long, multiple_occurrences(true))]
         nodes: Vec<u8>,
     },
+}
+
+fn hex_number_parser(s: &str) -> Result<u64, String> {
+    let without_prefix = s.trim_start_matches("0x");
+    let number = u64::from_str_radix(without_prefix, 16)
+        .map_err(|_| format!("`{}` is not a hex number", s))?;
+    Ok(number)
+}
+
+const PDO_COBID_RANGE: RangeInclusive<u64> = 0x180..=0x5ff;
+
+fn pdo_cobid_parser(s: &str) -> Result<u16, String> {
+    let cobid = hex_number_parser(s)?;
+    if PDO_COBID_RANGE.contains(&cobid) {
+        Ok(cobid as u16)
+    } else {
+        Err(format!(
+            "Cob Id is not in range {:x}-{:x}",
+            PDO_COBID_RANGE.start(),
+            PDO_COBID_RANGE.end()
+        ))
+    }
 }
 
 async fn client_server_communication_timeout() -> () {
@@ -122,6 +166,12 @@ async fn write_remote_object(
                 ((value >> 24) & 0xff_u32) as u8,
             ];
             col::download_4_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
+                .unwrap()
+                .into()
+        }
+        _ => {
+            error!("{:?} is not supported for this SDO", value_type);
+            col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
                 .unwrap()
                 .into()
         }
@@ -253,6 +303,65 @@ async fn read_remote_object_with_acknowledge_check(
     }
 }
 
+async fn send_pdo(
+    can_socket: &mut CANSocket,
+    cob_id: u16,
+    is_rtr: bool,
+    value_type: ValueType,
+    value: u64,
+) {
+    let buffer: [u8; 8];
+    let data: &[u8] = match value_type {
+        ValueType::None => &[],
+        ValueType::U8 => {
+            buffer = [value as u8, 0, 0, 0, 0, 0, 0, 0];
+            &buffer[0..=0]
+        }
+        ValueType::U16 => {
+            buffer = [value as u8, (value >> 8) as u8, 0, 0, 0, 0, 0, 0];
+            &buffer[0..=1]
+        }
+        ValueType::U32 => {
+            buffer = [
+                value as u8,
+                (value >> 8) as u8,
+                (value >> 16) as u8,
+                (value >> 24) as u8,
+                0,
+                0,
+                0,
+                0,
+            ];
+            &buffer[0..=3]
+        }
+        ValueType::U64 => {
+            buffer = [
+                value as u8,
+                (value >> 8) as u8,
+                (value >> 16) as u8,
+                (value >> 24) as u8,
+                (value >> 32) as u8,
+                (value >> 40) as u8,
+                (value >> 48) as u8,
+                (value >> 56) as u8,
+            ];
+            &buffer[0..=7]
+        }
+    };
+    let frame: CANFrame = col::CANOpenFrame::new_with_rtr(cob_id as u32, data, is_rtr)
+        .unwrap()
+        .into();
+    match can_socket.write_frame(frame) {
+        Ok(x) => x,
+        Err(error) => {
+            error!("Error instancing write: {}", error);
+            quit::with_code(1);
+        }
+    }
+    .await
+    .unwrap();
+}
+
 #[quit::main]
 fn main() {
     let cli = Cli::parse();
@@ -319,6 +428,18 @@ fn main() {
                     *value,
                 )
                 .await;
+            }
+            Some(Commands::Pdo {
+                cobid,
+                remote,
+                value_type,
+                value,
+            }) => {
+                info!(
+                    "Inject PDO cobid 0x{:x} RFR {} Value: 0x{:x}",
+                    cobid, remote, value
+                );
+                send_pdo(&mut can_socket, *cobid, *remote, *value_type, *value).await;
             }
             Some(Commands::Mon { nodes }) => {
                 if nodes.len() > 0 {
