@@ -3,7 +3,6 @@ use clap::{ArgEnum, Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use log::{debug, error, info};
 use std::io::Write;
-use std::ops::RangeInclusive;
 
 use futures_timer::Delay;
 use futures_util::StreamExt;
@@ -12,7 +11,7 @@ use std::time::Duration;
 use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
-use col::{self, sdo::SDOServerResponse};
+use col::{self, sdo::SDOServerResponse, pdo_cobid_parser, hex_number_parser};
 
 use futures::{
     future::FutureExt, // for `.fuse()`
@@ -116,28 +115,6 @@ enum Commands {
         #[clap(arg_enum, short, long, multiple_occurrences(true))]
         frame_types: Vec<FrameType>,
     },
-}
-
-fn hex_number_parser(s: &str) -> Result<u64, String> {
-    let without_prefix = s.trim_start_matches("0x");
-    let number = u64::from_str_radix(without_prefix, 16)
-        .map_err(|_| format!("`{}` is not a hex number", s))?;
-    Ok(number)
-}
-
-const PDO_COBID_RANGE: RangeInclusive<u64> = 0x180..=0x5ff;
-
-fn pdo_cobid_parser(s: &str) -> Result<u16, String> {
-    let cobid = hex_number_parser(s)?;
-    if PDO_COBID_RANGE.contains(&cobid) {
-        Ok(cobid as u16)
-    } else {
-        Err(format!(
-            "Cob Id is not in range {:x}-{:x}",
-            PDO_COBID_RANGE.start(),
-            PDO_COBID_RANGE.end()
-        ))
-    }
 }
 
 async fn client_server_communication_timeout() -> () {

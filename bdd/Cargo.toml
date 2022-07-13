@@ -1,0 +1,21 @@
+[package]
+name = "bdd"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.56"
+cucumber = "0.13.0"
+futures = "0.3.21"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "time"] }
+tokio-socketcan = "0.3.1"
+
+col = { path = "../canopen-lib" }
+futures-timer = "3.0.2"
+futures-util = "0.3.21"
+
+[[test]]
+name = "canopen"
+harness = false  # allows Cucumber to print output instead of libtest

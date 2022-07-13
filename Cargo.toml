@@ -2,5 +2,6 @@
 
 members = [
     "cot",
-    "canopen-lib"
+    "canopen-lib",
+    "bdd",
 ]
