@@ -31,7 +31,6 @@ Not nessecarily in this sequence
 * test sdo monitor output
 * implement PDO (mapped output)
 * improved PDO monitor output
-* better input hex, dec, binary
 * revise canopen steps in bdd
 * unit tests
 * refactor remove code duplications

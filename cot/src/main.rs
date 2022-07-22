@@ -11,7 +11,8 @@ use std::time::Duration;
 use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
-use col::{self, sdo::SDOServerResponse, pdo_cobid_parser, hex_number_parser};
+use col::{self, sdo::SDOServerResponse, pdo_cobid_parser};
+use parse_int::parse;
 
 use futures::{
     future::FutureExt, // for `.fuse()`
@@ -56,33 +57,39 @@ enum FrameType {
 enum Commands {
     /// Read object directory
     Rod {
-        /// NodeId - range 0..127
+        /// NodeId - range 0 .. 127 aka 0x00 .. 0x7f
+        #[clap(value_parser = parse::<u8>)]
         node: u8,
 
         /// Object index - range 0x0000 .. 0xffff
+        #[clap(value_parser = parse::<u16>)]
         index: u16,
 
         /// Object subindex - index 0x00 .. 0xff
-        #[clap(default_value_t = 0x00)]
+        #[clap(default_value_t = 0x00, value_parser = parse::<u32>)]
         subindex: u8,
     },
 
     /// Write object directory
     Wod {
-        /// NodeId - range 0..127
+        /// NodeId - range 0..127 aka 0x00 .. 0x7f
+        #[clap(value_parser = parse::<u8>)]
         node: u8,
 
         /// Object index - range 0x0000 .. 0xffff
+        #[clap(value_parser = parse::<u16>)]
         index: u16,
 
         /// Object subindex - index 0x00 .. 0xff
+        #[clap(value_parser = parse::<u8>)]
         subindex: u8,
 
         /// ValueType of the value
         #[clap(arg_enum)]
         value_type: ValueType,
 
-        /// Object value - u32 for now
+        /// Object value - u32 as 0xabc_def01 or b0011_1001_0 or 123
+        #[clap(value_parser = parse::<u32>)]
         value: u32,
     },
 
@@ -101,7 +108,7 @@ enum Commands {
         value_type: ValueType,
 
         /// PDO payload in hexadecimal with leading 0x maximum 8 bytes
-        #[clap(value_parser = hex_number_parser)]
+        #[clap(value_parser = parse::<u64>)]
         value: u64,
     },
 

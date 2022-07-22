@@ -25,3 +25,4 @@ futures-util = "0.3"
 chrono = "0.4.19"
 hex-slice = "0.1.4"
 col = { path = "../canopen-lib" }
+parse_int = "0.6.0"
