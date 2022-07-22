@@ -52,18 +52,32 @@ impl std::fmt::Display for CANOpenFrame {
         self: &Self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::result::Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "{}: 0x{:02X} \t",
-            self._frame_type, self._node_id
-        )?;
+        write!(f, "{}: ", self._frame_type,)?;
 
         match self._frame_type {
             FrameType::SsdoTx | FrameType::SsdoRx => {
+                write!(f, "0x{:02X} \t", self._node_id)?;
                 let sdo_response = SDOServerResponse::parse(self).map_err(|_| std::fmt::Error)?;
                 write!(f, "{}", sdo_response);
             }
+            FrameType::Tpdo1
+            | FrameType::Tpdo2
+            | FrameType::Tpdo3
+            | FrameType::Tpdo4
+            | FrameType::Rpdo1
+            | FrameType::Rpdo2
+            | FrameType::Rpdo3
+            | FrameType::Rpdo4 => {
+                write!(f, "0x{:02X} \t", self.cob_id())?;
+                if self._length > 0 && self._length < 9 {
+                    let data = &self._data[0..self._length as usize];
+                    for byte in data.iter() {
+                        write!(f, "{:02X} ", byte);
+                    }
+                }
+            }
             _ => {
+                write!(f, "0x{:02X} \t", self._node_id)?;
                 if self._length > 0 && self._length < 9 {
                     let data = &self._data[0..self._length as usize];
                     for byte in data.iter() {
@@ -142,7 +156,13 @@ impl CANOpenFrame {
 impl Into<CANFrame> for CANOpenFrame {
     fn into(self) -> CANFrame {
         // every CANOpen frame is a CAN frame this conversion shall not cause an error
-        CANFrame::new(self.cob_id(), &self._data[0..self._length as usize], self.is_rtr(), false).unwrap()
+        CANFrame::new(
+            self.cob_id(),
+            &self._data[0..self._length as usize],
+            self.is_rtr(),
+            false,
+        )
+        .unwrap()
     }
 }
 

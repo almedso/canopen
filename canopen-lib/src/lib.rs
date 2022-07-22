@@ -13,9 +13,9 @@ use std::ops::RangeInclusive;
 pub fn parse_hex_payload(s: &str) -> ([u8; 8], usize) {
     let without_prefix = s.trim_start_matches("0x");
     let len: usize = without_prefix.len() / 2;
-    let mut result: [u8; 8] = [0, 0, 0, 0 ,0 ,0 ,0 ,0];
+    let mut result: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
     for index in 0..len {
-        result[index] = parse::<u8>(&without_prefix[index*2 ..=index*2+1]).unwrap();
+        result[index] = parse::<u8>(&without_prefix[index * 2..=index * 2 + 1]).unwrap();
     }
     (result, len)
 }

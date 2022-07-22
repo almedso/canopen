@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
-use col::{self, sdo::SDOServerResponse, pdo_cobid_parser};
+use col::{self, pdo_cobid_parser, nodeid_parser, sdo::SDOServerResponse};
 use parse_int::parse;
 
 use futures::{
@@ -97,7 +97,7 @@ enum Commands {
     Pdo {
         /// CobId - range 0x180...0x5ff aka 512 max
         #[clap(value_parser = pdo_cobid_parser)]
-        cobid: u16,
+        cobid: u32,
 
         /// Remote frame flag
         #[clap(short, long)]
@@ -115,8 +115,12 @@ enum Commands {
     /// Monitor traffic
     Mon {
         /// NodeId - range 0..127
-        #[clap(short, long, multiple_occurrences(true))]
+        #[clap(short, long, value_parser = nodeid_parser, multiple_occurrences(true))]
         nodes: Vec<u8>,
+
+        /// CobId - range 0..0x3ff
+        #[clap(short, long, value_parser = pdo_cobid_parser, multiple_occurrences(true))]
+        cobids: Vec<u32>,
 
         /// FrameType
         #[clap(arg_enum, short, long, multiple_occurrences(true))]
@@ -302,7 +306,7 @@ async fn read_remote_object_with_acknowledge_check(
 
 async fn send_pdo(
     can_socket: &mut CANSocket,
-    cob_id: u16,
+    cob_id: u32,
     is_rtr: bool,
     value_type: ValueType,
     value: u64,
@@ -438,7 +442,7 @@ fn main() {
                 );
                 send_pdo(&mut can_socket, *cobid, *remote, *value_type, *value).await;
             }
-            Some(Commands::Mon { nodes, frame_types }) => {
+            Some(Commands::Mon { nodes, cobids, frame_types }) => {
                 if nodes.len() > 0 {
                     info!("Monitor traffic for node {:02x}", nodes.as_hex());
                 } else {
@@ -502,13 +506,13 @@ fn main() {
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
                         ],
-
                     })
                     .collect::<Vec<col::FrameType>>();
                 while let Some(Ok(frame)) = can_socket.next().await {
                     match col::CANOpenFrame::try_from(frame) {
                         Ok(frame) => {
-                            if nodes.is_empty() || nodes.contains(&frame.node_id()) {
+                            if nodes.is_empty() || nodes.contains(&frame.node_id())
+                            || cobids.is_empty() || cobids.contains(&frame.cob_id()) {
                                 if frame_types.is_empty()
                                     || frame_types.contains(&frame.frame_type())
                                 {

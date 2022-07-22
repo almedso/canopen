@@ -16,7 +16,6 @@ use tokio_socketcan::{CANFrame, CANSocket};
 use bdd::{read_remote_object, write_remote_object, ValueType};
 use col::{self, nodeid_parser, parse_hex_payload, pdo_cobid_parser};
 
-
 async fn play_timeout(timeout_in_ms: u32) -> () {
     let _timeout = Delay::new(Duration::from_millis(timeout_in_ms.into())).await;
 }
