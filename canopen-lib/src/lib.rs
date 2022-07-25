@@ -10,15 +10,21 @@ pub use parse_int::parse;
 
 use std::ops::RangeInclusive;
 
-pub fn parse_hex_payload(s: &str) -> ([u8; 8], usize) {
-    let without_prefix = s.trim_start_matches("0x");
-    let len: usize = without_prefix.len() / 2;
+pub fn parse_payload_as_byte_sequence_semicolon_delimited(s: &str) -> ([u8; 8], usize)
+{
+    let mut index: usize = 0;
     let mut result: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-    for index in 0..len {
-        result[index] = parse::<u8>(&without_prefix[index * 2..=index * 2 + 1]).unwrap();
+    for byte in s.split(';').into_iter() {
+        result[index] = parse::<u8>(byte).unwrap();
+        index += 1;
+        if index > 7 {
+            // do not parse beyond the 8 bytes
+            break;
+        }
     }
-    (result, len)
+    (result, index)
 }
+
 
 const PDO_COBID_RANGE: RangeInclusive<u32> = 0x180..=0x5ff;
 
@@ -37,10 +43,10 @@ pub fn pdo_cobid_parser(s: &str) -> Result<u32, String> {
 
 const NODE_ID_RANGE: RangeInclusive<u32> = 0x00..=0x7f;
 
-pub fn nodeid_parser(s: &str) -> Result<u32, String> {
+pub fn nodeid_parser(s: &str) -> Result<u8, String> {
     let nodeid = parse::<u32>(s).map_err(|x| format!("{} is not an integer", x))?;
     if NODE_ID_RANGE.contains(&nodeid) {
-        Ok(nodeid)
+        Ok(nodeid.try_into().unwrap())
     } else {
         Err(format!(
             "Node Id is not in range {:x}-{:x}",
@@ -49,3 +55,21 @@ pub fn nodeid_parser(s: &str) -> Result<u32, String> {
         ))
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_payload_as_byte_sequence_() {
+        let expected_data: [u8; 8] = [1, 0, 0, 0, 0 ,0, 0, 0 ];
+        assert_eq!((expected_data, 1), parse_payload_as_byte_sequence_semicolon_delimited("1"));
+
+        let expected_data: [u8; 8] = [1, 2, 3, 0, 0 ,0, 0, 0 ];
+        assert_eq!((expected_data, 3), parse_payload_as_byte_sequence_semicolon_delimited("01;0b10;0x0_3"));
+        let expected_data: [u8; 8] = [06, 0x38, 0, 0, 0 ,0, 0, 0 ];
+        assert_eq!((expected_data, 4), parse_payload_as_byte_sequence_semicolon_delimited("0x06;0x38;0;0"));
+    }
+}
+

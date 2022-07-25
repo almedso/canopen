@@ -14,16 +14,25 @@ use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
 use bdd::{read_remote_object, write_remote_object, ValueType};
-use col::{self, nodeid_parser, parse_hex_payload, pdo_cobid_parser};
+use col::{self, nodeid_parser, parse_payload_as_byte_sequence_semicolon_delimited, pdo_cobid_parser};
 
 async fn play_timeout(timeout_in_ms: u32) -> () {
     let _timeout = Delay::new(Duration::from_millis(timeout_in_ms.into())).await;
 }
 
-async fn expect_frame(can_socket: &mut CANSocket, expected_cob_id: u32, expected_payload: &[u8]) {
+async fn expect_frame(can_socket: &mut CANSocket, expected_cob_id: u32, expected_payload: Option<&[u8]>) {
     while let Some(Ok(frame)) = can_socket.next().await {
-        if frame.id() == expected_cob_id && frame.data() == expected_payload {
-            break;
+        match expected_payload {
+            Some(payload) => {
+                if frame.id() == expected_cob_id && frame.data() == payload {
+                    break;
+                }
+            }
+            None => {
+                if frame.id() == expected_cob_id {
+                    break;
+                }
+            }
         }
     }
 }
@@ -50,14 +59,14 @@ async fn wait_some_time(_w: &mut World, time_in_ms: u32) {
     play_timeout(time_in_ms).await;
 }
 
-#[given(regex = r".*[Nn]ode (0x[0-9_a-fA-F]{2}) is up$")]
-#[then(regex = r".*[Nn]ode (0x[0-9_a-fA-F]{2}) is up$")]
+#[given(regex = r".*[Nn]ode (0x[0-9a-fA-F]{2}) is up$")]
+#[then(regex = r".*[Nn]ode (0x[0-9a-fA-F]{2}) is up$")]
 async fn expect_node_sends_nmt_heartbeat(w: &mut World, node: String) {
     const NMT_ERROR_CONTROL: u32 = 0b1110 << 7;
     let cob_id = nodeid_parser(&node).unwrap() as u32 + NMT_ERROR_CONTROL;
     let data: [u8; 1] = [5];
 
-    let can_worker = expect_frame(&mut w.cansocket, cob_id, &data).fuse();
+    let can_worker = expect_frame(&mut w.cansocket, cob_id, Some(&data)).fuse();
     let timeout_worker = play_timeout(1200).fuse();
 
     pin_mut!(can_worker, timeout_worker);
@@ -68,21 +77,21 @@ async fn expect_node_sends_nmt_heartbeat(w: &mut World, node: String) {
     }
 }
 
-#[given(regex = r".*PDO ([0-9_xa-fA-F]+) payload ([0-9_xa-fA-F]+)$")]
-#[when(regex = r".*PDO ([0-9_xa-fA-F]+) payload ([0-9_xa-fA-F]+)$")]
+#[given(regex = r".*PDO (0x[0-9a-fA-F]+) payload ([;_xb0-9a-fA-F]+)$")]
+#[when(regex = r".*PDO (0x[0-9a-fA-F]+) payload ([;_xb0-9a-fA-F]+)$")]
 async fn stimulus_send_pdo(w: &mut World, cob: String, payload: String) {
     let cob_id = pdo_cobid_parser(&cob).unwrap();
-    let (data, len) = parse_hex_payload(&payload);
-    let frame: CANFrame = col::CANOpenFrame::new_with_rtr(cob_id as u32, &data[0..len], false)
+    let (data, len) = parse_payload_as_byte_sequence_semicolon_delimited(&payload);
+    let frame: CANFrame = col::CANOpenFrame::new_with_rtr(cob_id, &data[0..len], false)
         .unwrap()
         .into();
     w.cansocket.write_frame(frame).unwrap().await.unwrap();
 }
 
 #[then(
-    regex = r".*([Rr]eject|[Ee]xpect) PDO ([0-9_xa-fA-F]+) payload ([0-9_xa-fA-F]+) within (\d+) ms$"
+    regex = r".*([Rr]eject|[Ee]xpect) PDO ([0-9_xa-fA-F]+) payload ([;_xb0-9a-fA-F]+) within (\d+) ms$"
 )]
-async fn response_read_pdo(
+async fn response_read_pdo_with_payload(
     w: &mut World,
     expect_pdo: String,
     cob_id: String,
@@ -90,9 +99,9 @@ async fn response_read_pdo(
     timeout: u32,
 ) {
     let cob_id = pdo_cobid_parser(&cob_id).unwrap();
-    let (data, len) = parse_hex_payload(&payload);
+    let (data, len) = parse_payload_as_byte_sequence_semicolon_delimited(&payload);
 
-    let can_worker = expect_frame(&mut w.cansocket, cob_id.into(), &data[0..len]).fuse();
+    let can_worker = expect_frame(&mut w.cansocket, cob_id.into(), Some(&data[0..len])).fuse();
     let timeout_worker = play_timeout(timeout).fuse();
 
     pin_mut!(can_worker, timeout_worker);
@@ -114,11 +123,46 @@ async fn response_read_pdo(
     }
 }
 
+#[then(
+    regex = r".*([Rr]eject|[Ee]xpect) PDO ([0-9_xa-fA-F]+) within (\d+) ms$"
+)]
+async fn response_read_pdo(
+    w: &mut World,
+    expect_pdo: String,
+    cob_id: String,
+    timeout: u32,
+) {
+    let cob_id = pdo_cobid_parser(&cob_id).unwrap();
+
+    let can_worker = expect_frame(&mut w.cansocket, cob_id.into(), None).fuse();
+    let timeout_worker = play_timeout(timeout).fuse();
+
+    pin_mut!(can_worker, timeout_worker);
+
+    match expect_pdo.as_str() {
+        "reject" | "Reject" => {
+            select! {
+                () = can_worker => panic!("PDO received within {} ms", timeout),
+                () = timeout_worker => (), // positive case, worker finishes first
+            }
+        }
+        "expect" | "Expect" => {
+            select! {
+                () = can_worker => (), // positive case, worker finishes first
+                () = timeout_worker => panic!("No PDO not received within {} ms", timeout), // step failed
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+
+
 #[given(
-    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xa-fA-F]+)$"
+    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
 )]
 #[when(
-    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xa-fA-F]+)$"
+    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
 )]
 async fn write_object_at_node(
     w: &mut World,
