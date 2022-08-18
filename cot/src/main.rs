@@ -66,7 +66,7 @@ enum Commands {
         index: u16,
 
         /// Object subindex - index 0x00 .. 0xff
-        #[clap(default_value_t = 0x00, value_parser = parse::<u32>)]
+        #[clap(default_value_t = 0x00, value_parser = parse::<u8>)]
         subindex: u8,
     },
 
