@@ -22,7 +22,7 @@ thiserror = "1.0"
 tokio = { version = "1", features = ["net", "macros", "rt-multi-thread"] }
 futures-timer = "3.0"
 futures-util = "0.3"
-chrono = "0.4.19"
 hex-slice = "0.1.4"
 col = { path = "../canopen-lib" }
 parse_int = "0.6.0"
+chrono = "0.4.22"

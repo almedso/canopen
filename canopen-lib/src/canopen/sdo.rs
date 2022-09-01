@@ -180,7 +180,7 @@ impl SDOServerResponse {
 
 impl std::fmt::Display for SDOServerResponse {
     fn fmt(
-        self: &Self,
+        &self,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::result::Result<(), std::fmt::Error> {
         match self.result {

@@ -14,13 +14,19 @@ use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
 use bdd::{read_remote_object, write_remote_object, ValueType};
-use col::{self, nodeid_parser, parse_payload_as_byte_sequence_semicolon_delimited, pdo_cobid_parser};
+use col::{
+    self, nodeid_parser, parse_payload_as_byte_sequence_semicolon_delimited, pdo_cobid_parser,
+};
 
 async fn play_timeout(timeout_in_ms: u32) -> () {
     let _timeout = Delay::new(Duration::from_millis(timeout_in_ms.into())).await;
 }
 
-async fn expect_frame(can_socket: &mut CANSocket, expected_cob_id: u32, expected_payload: Option<&[u8]>) {
+async fn expect_frame(
+    can_socket: &mut CANSocket,
+    expected_cob_id: u32,
+    expected_payload: Option<&[u8]>,
+) {
     while let Some(Ok(frame)) = can_socket.next().await {
         match expected_payload {
             Some(payload) => {
@@ -123,15 +129,8 @@ async fn response_read_pdo_with_payload(
     }
 }
 
-#[then(
-    regex = r".*([Rr]eject|[Ee]xpect) PDO ([0-9_xa-fA-F]+) within (\d+) ms$"
-)]
-async fn response_read_pdo(
-    w: &mut World,
-    expect_pdo: String,
-    cob_id: String,
-    timeout: u32,
-) {
+#[then(regex = r".*([Rr]eject|[Ee]xpect) PDO ([0-9_xa-fA-F]+) within (\d+) ms$")]
+async fn response_read_pdo(w: &mut World, expect_pdo: String, cob_id: String, timeout: u32) {
     let cob_id = pdo_cobid_parser(&cob_id).unwrap();
 
     let can_worker = expect_frame(&mut w.cansocket, cob_id.into(), None).fuse();
@@ -155,8 +154,6 @@ async fn response_read_pdo(
         _ => unreachable!(),
     }
 }
-
-
 
 #[given(
     regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"

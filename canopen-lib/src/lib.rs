@@ -10,11 +10,10 @@ pub use parse_int::parse;
 
 use std::ops::RangeInclusive;
 
-pub fn parse_payload_as_byte_sequence_semicolon_delimited(s: &str) -> ([u8; 8], usize)
-{
+pub fn parse_payload_as_byte_sequence_semicolon_delimited(s: &str) -> ([u8; 8], usize) {
     let mut index: usize = 0;
     let mut result: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-    for byte in s.split(';').into_iter() {
+    for byte in s.split(';') {
         result[index] = parse::<u8>(byte).unwrap();
         index += 1;
         if index > 7 {
@@ -24,7 +23,6 @@ pub fn parse_payload_as_byte_sequence_semicolon_delimited(s: &str) -> ([u8; 8], 
     }
     (result, index)
 }
-
 
 const PDO_COBID_RANGE: RangeInclusive<u32> = 0x180..=0x5ff;
 
@@ -56,20 +54,27 @@ pub fn nodeid_parser(s: &str) -> Result<u8, String> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_payload_as_byte_sequence_() {
-        let expected_data: [u8; 8] = [1, 0, 0, 0, 0 ,0, 0, 0 ];
-        assert_eq!((expected_data, 1), parse_payload_as_byte_sequence_semicolon_delimited("1"));
+        let expected_data: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            (expected_data, 1),
+            parse_payload_as_byte_sequence_semicolon_delimited("1")
+        );
 
-        let expected_data: [u8; 8] = [1, 2, 3, 0, 0 ,0, 0, 0 ];
-        assert_eq!((expected_data, 3), parse_payload_as_byte_sequence_semicolon_delimited("01;0b10;0x0_3"));
-        let expected_data: [u8; 8] = [06, 0x38, 0, 0, 0 ,0, 0, 0 ];
-        assert_eq!((expected_data, 4), parse_payload_as_byte_sequence_semicolon_delimited("0x06;0x38;0;0"));
+        let expected_data: [u8; 8] = [1, 2, 3, 0, 0, 0, 0, 0];
+        assert_eq!(
+            (expected_data, 3),
+            parse_payload_as_byte_sequence_semicolon_delimited("01;0b10;0x0_3")
+        );
+        let expected_data: [u8; 8] = [06, 0x38, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            (expected_data, 4),
+            parse_payload_as_byte_sequence_semicolon_delimited("0x06;0x38;0;0")
+        );
     }
 }
-

@@ -161,7 +161,7 @@ impl TryFrom<Data> for u64 {
 }
 
 impl Data {
-    pub fn len(self: &Self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Data::NIL => 0,
             Data::BOOLEAN(_) => 1,
@@ -182,6 +182,10 @@ impl Data {
             Data::DOMAIN(value) => value.len(),
             _ => unimplemented!(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Data::NIL
     }
 }
 
@@ -318,7 +322,7 @@ impl Data {
 }
 
 pub trait AsNum {
-    fn as_num<T>(self: Self) -> Result<T>
+    fn as_num<T>(&self) -> Result<T>
     where
         T: Num,
         <T as Num>::FromStrRadixErr: std::error::Error,
@@ -328,7 +332,7 @@ pub trait AsNum {
 }
 
 impl<'a> AsNum for &'a str {
-    fn as_num<T>(self) -> Result<T>
+    fn as_num<T>(&self) -> Result<T>
     where
         T: Num,
         <T as Num>::FromStrRadixErr: std::error::Error,
@@ -336,12 +340,12 @@ impl<'a> AsNum for &'a str {
         <T as Num>::FromStrRadixErr: std::marker::Sync,
         <T as Num>::FromStrRadixErr: 'static,
     {
-        if self.starts_with("0x") {
-            Ok(T::from_str_radix(&self[2..], 16)?)
+        if let Some(stripped) = self.strip_prefix("0x") {
+            Ok(T::from_str_radix(stripped, 16)?)
         } else if self.len() > 1 && self.starts_with('0') {
             Ok(T::from_str_radix(&self[1..], 8)?)
         } else {
-            Ok(T::from_str_radix(&self, 10)?)
+            Ok(T::from_str_radix(self, 10)?)
         }
     }
 }
