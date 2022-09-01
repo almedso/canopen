@@ -8,10 +8,10 @@ use futures_timer::Delay;
 use futures_util::StreamExt;
 use hex_slice::AsHex;
 use std::time::Duration;
-use tokio;
+// use tokio;
 use tokio_socketcan::{CANFrame, CANSocket};
 
-use col::{self, pdo_cobid_parser, nodeid_parser, sdo::SDOServerResponse};
+use col::{self, nodeid_parser, pdo_cobid_parser, sdo::SDOServerResponse};
 use parse_int::parse;
 
 use futures::{
@@ -19,6 +19,8 @@ use futures::{
     pin_mut,
     select,
 };
+
+use std::time::Instant;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -46,11 +48,11 @@ enum ValueType {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
 enum FrameType {
-    PDO,
-    SDO,
-    NMT,
-    EMG,
-    ERR,
+    Pdo,
+    Sdo,
+    Nmt,
+    Emg,
+    Err,
 }
 
 #[derive(Subcommand)]
@@ -125,10 +127,14 @@ enum Commands {
         /// FrameType
         #[clap(arg_enum, short, long, multiple_occurrences(true))]
         frame_types: Vec<FrameType>,
+
+        /// Show relative time stamps
+        #[clap(short, long)]
+        timestamp: bool,
     },
 }
 
-async fn client_server_communication_timeout() -> () {
+async fn client_server_communication_timeout() {
     debug!("Set response timeout to 3 seconds");
     let _timeout = Delay::new(Duration::from_secs(3)).await;
 }
@@ -140,7 +146,7 @@ async fn write_remote_object(
     subindex: u8,
     value_type: ValueType,
     value: u32,
-) -> () {
+) {
     const SDO_RECEIVE: u32 = 0x600;
     let frame: CANFrame = match value_type {
         ValueType::U8 => {
@@ -232,7 +238,7 @@ async fn write_remote_object_with_acknowledge_check(
     }
 }
 
-async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) -> () {
+async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) {
     const SDO_RECEIVE: u32 = 0x600;
     let frame: CANFrame = col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
         .unwrap()
@@ -442,21 +448,26 @@ fn main() {
                 );
                 send_pdo(&mut can_socket, *cobid, *remote, *value_type, *value).await;
             }
-            Some(Commands::Mon { nodes, cobids, frame_types }) => {
-                if nodes.len() > 0 {
+            Some(Commands::Mon {
+                nodes,
+                cobids,
+                frame_types,
+                timestamp,
+            }) => {
+                if !nodes.is_empty() {
                     info!("Monitor traffic for node {:02x}", nodes.as_hex());
                 } else {
                     info!("Monitor traffic for all nodes");
                 }
-                if frame_types.len() > 0 {
+                if !frame_types.is_empty() {
                     info!("Monitor traffic for frame types {:0?}", frame_types);
                 } else {
                     info!("Monitor traffic for all frametypes");
                 }
                 let frame_types = frame_types
-                    .into_iter()
+                    .iter()
                     .flat_map(|x| match *x {
-                        FrameType::PDO => [
+                        FrameType::Pdo => [
                             col::FrameType::Rpdo1,
                             col::FrameType::Rpdo2,
                             col::FrameType::Rpdo3,
@@ -466,7 +477,7 @@ fn main() {
                             col::FrameType::Tpdo3,
                             col::FrameType::Tpdo4,
                         ],
-                        FrameType::SDO => [
+                        FrameType::Sdo => [
                             col::FrameType::SsdoRx,
                             col::FrameType::SsdoTx,
                             col::FrameType::SsdoRx,
@@ -476,7 +487,7 @@ fn main() {
                             col::FrameType::SsdoRx,
                             col::FrameType::SsdoTx,
                         ],
-                        FrameType::NMT => [
+                        FrameType::Nmt => [
                             col::FrameType::Nmt,
                             col::FrameType::Nmt,
                             col::FrameType::Nmt,
@@ -486,7 +497,7 @@ fn main() {
                             col::FrameType::Nmt,
                             col::FrameType::Nmt,
                         ],
-                        FrameType::EMG => [
+                        FrameType::Emg => [
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
@@ -496,7 +507,7 @@ fn main() {
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
                         ],
-                        FrameType::ERR => [
+                        FrameType::Err => [
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
                             col::FrameType::NmtErrorControl,
@@ -508,16 +519,20 @@ fn main() {
                         ],
                     })
                     .collect::<Vec<col::FrameType>>();
+                let start_time = Instant::now();
                 while let Some(Ok(frame)) = can_socket.next().await {
                     match col::CANOpenFrame::try_from(frame) {
                         Ok(frame) => {
-                            if nodes.is_empty() || nodes.contains(&frame.node_id())
-                            || cobids.is_empty() || cobids.contains(&frame.cob_id()) {
-                                if frame_types.is_empty()
-                                    || frame_types.contains(&frame.frame_type())
-                                {
-                                    println!("{}", frame);
+                            if (nodes.is_empty()
+                                && (cobids.is_empty() || cobids.contains(&frame.cob_id())))
+                                || nodes.contains(&frame.node_id())
+                                    && (frame_types.is_empty()
+                                        || frame_types.contains(&frame.frame_type()))
+                            {
+                                if *timestamp {
+                                    print!("[{:?}] ", start_time.elapsed());
                                 }
+                                println!("{}", frame);
                             }
                         }
                         Err(e) => error!("{}", e),
