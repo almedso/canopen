@@ -8,16 +8,32 @@ It consists of the crates
 * **bdd** - CANopen bdd - a Tool to run cucumber specified tests against
             CANopen network
 
---> check for potential README's in the respective contained crates.
+## CAN bus setup
 
-## Can setup
+the CANOpen library and therefore also the CANOpen tool and the BDD tool
+are based on [sockecan](https://en.wikipedia.org/wiki/SocketCAN).
 
-on linux
+On a linux system, where a can hardware driver is attached and a
+kernel driver is loaded the can bus can be brought up like:
 
 ```sh
 sudo ip link set can0 type can bitrate 250000
 sudo ip link set up can0
 ```
+
+## Running the CANOpen tool cot.
+
+Like any other rust project you need to have rust installed.
+
+```sh
+git clone git@github.com:almedso/canopen.git
+cargo run -- --help  # get help information on the CANOpen tool
+```
+
+## Running BDD test
+
+see the the [README.md in the bdd crate](./bdd/README.md)
+for more details.
 
 ## License
 
@@ -25,15 +41,14 @@ Licensed under MIT license [LICENSE-MIT](LICENSE-MIT).
 
 ## Todo
 
-Not nessecarily in this sequence
+Not necessarily in this sequence
 
-* test SDO updated implementation wod / read
-* test sdo monitor output
-* implement PDO (mapped output)
-* improved PDO monitor output
-* revise canopen steps in bdd
+* more sdo z.B. multibyte
 * unit tests
 * refactor remove code duplications
+
+test mermaid
+
 
 ## References
 
