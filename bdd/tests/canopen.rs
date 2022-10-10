@@ -156,10 +156,10 @@ async fn response_read_pdo(w: &mut World, expect_pdo: String, cob_id: String, ti
 }
 
 #[given(
-    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
+    regex = r".*[Ss]et object (0x[0-9a-fA-F]{4}),(0x[0-9a-fA-F]{2}) at node (0x[0-9a-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
 )]
 #[when(
-    regex = r".*[Ss]et object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
+    regex = r".*[Ss]et object (0x[0-9a-fA-F]{4}),(0x[0-9a-fA-F]{2}) at node (0x[0-9a-fA-F]{2}) as type (u8|u16|u32) to value ([0-9_xba-fA-F]+)$"
 )]
 async fn write_object_at_node(
     w: &mut World,
@@ -200,10 +200,10 @@ async fn write_object_at_node(
 }
 
 #[given(
-    regex = r".*[Ee]xpect object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) to be ([0-9_xa-fA-F]+)$"
+    regex = r".*[Ee]xpect object (0x[0-9a-fA-F]{4}),(0x[0-9a-fA-F]{2}) at node (0x[0-9a-fA-F]{2}) to be ([0-9_xa-fA-F]+)$"
 )]
 #[then(
-    regex = r".*[Ee]xpect object ([0-9_xa-fA-F]{4}),([0-9_xa-fA-F]{2}) at node ([0-9_xa-fA-F]{2}) to be ([0-9_xa-fA-F]+)$"
+    regex = r".*[Ee]xpect object (0x[0-9a-fA-F]{4}),(0x[0-9a-fA-F]{2}) at node (0x[0-9a-fA-F]{2}) to be ([0-9_xa-fA-F]+)$"
 )]
 async fn read_object_at_node(
     w: &mut World,

@@ -52,10 +52,7 @@ pub struct CANOpenFrame {
 }
 
 impl std::fmt::Display for CANOpenFrame {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::result::Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(f, "{}: ", self._frame_type,)?;
 
         match self._frame_type {

@@ -464,7 +464,22 @@ fn main() {
                 } else {
                     info!("Monitor traffic for all frametypes");
                 }
-                let frame_types = frame_types
+                let all_frame_types = vec![
+                    col::FrameType::NmtErrorControl,
+                    col::FrameType::Nmt,
+                    col::FrameType::SsdoRx,
+                    col::FrameType::SsdoTx,
+                    col::FrameType::Rpdo1,
+                    col::FrameType::Rpdo2,
+                    col::FrameType::Rpdo3,
+                    col::FrameType::Rpdo4,
+                    col::FrameType::Tpdo1,
+                    col::FrameType::Tpdo2,
+                    col::FrameType::Tpdo3,
+                    col::FrameType::Tpdo4,
+                ];
+
+                let mut frame_types = frame_types
                     .iter()
                     .flat_map(|x| match *x {
                         FrameType::Pdo => [
@@ -519,15 +534,18 @@ fn main() {
                         ],
                     })
                     .collect::<Vec<col::FrameType>>();
+                if frame_types.is_empty() {
+                    frame_types = all_frame_types;
+                }
+
                 let start_time = Instant::now();
                 while let Some(Ok(frame)) = can_socket.next().await {
                     match col::CANOpenFrame::try_from(frame) {
                         Ok(frame) => {
-                            if (nodes.is_empty()
-                                && (cobids.is_empty() || cobids.contains(&frame.cob_id())))
-                                || nodes.contains(&frame.node_id())
-                                    && (frame_types.is_empty()
-                                        || frame_types.contains(&frame.frame_type()))
+                            if frame_types.contains(&frame.frame_type())
+                                && (nodes.is_empty()
+                                    && (cobids.is_empty() || cobids.contains(&frame.cob_id()))
+                                    || nodes.contains(&frame.node_id()))
                             {
                                 if *timestamp {
                                     print!("[{:?}] ", start_time.elapsed());
