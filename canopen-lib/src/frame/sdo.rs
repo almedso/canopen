@@ -6,10 +6,20 @@ type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Fail, Debug)]
 pub enum SDOResult {
+    #[fail(display = "DownloadSegment: Read of n-th segment success")]
+    DownloadSegment,
+    #[fail(display = "InitiateDownload: Confirm write of segment or expedited read success")]
+    InitiateDownload,
+    #[fail(display = "InitiateUpload: First segmented read response success")]
+    InitiateUpload,
     #[fail(display = "Success")]
-    Success,
+    UploadSuccess,
     #[fail(display = "Failure")]
     Failure,
+    #[fail(display = "Block upload")]
+    BlockUpload,
+    #[fail(display = "Block download")]
+    BlockDownload,
     #[fail(display = "Code Byte: {}", _0)]
     UnknownResult(u8),
 }
@@ -121,11 +131,26 @@ impl From<u32> for SDOAbortCode {
     }
 }
 
+// http://www.byteme.org.uk/canopenparent/canopen/sdo-service-data-objects-canopen/
+// note client and server is mismatched - somehow buggy but helpful for sequences
+
+// https://docs.octave.dev/docs/canopen-reference-guide
+// very compact and another view on CCS = cleint command specifier
+// SCS server command specifier
+//
+// https://www.motorpowerco.com/media/filer_public/32/c2/32c2f3a8-17cb-4204-8249-ffe5fc4e6c04/bpro_canopen_implementationguide.pdf
+
+
 impl From<u8> for SDOResult {
     fn from(data: u8) -> SDOResult {
-        match data {
-            0x60 => SDOResult::Success,
-            0x80 => SDOResult::Failure,
+        match data & 0b_111_00000 {
+            0b_000_00000 => SDOResult::DownloadSegment,
+            0b_001_00000 => SDOResult::InitiateDownload,
+            0b_010_00000 => SDOResult::InitiateUpload,
+            0b_011_00000 => SDOResult::UploadSuccess,
+            0b_100_00000 => SDOResult::Failure,
+            0b_101_00000 => SDOResult::BlockUpload,
+            0b_110_00000 => SDOResult::BlockDownload,
             result => SDOResult::UnknownResult(result),
         }
     }
@@ -157,6 +182,34 @@ pub struct SDOServerResponse {
     pub subindex: u8,
     pub data: u32,
 }
+
+
+#[derive(Debug)]
+pub enum CommandToggleFlag {
+    Set = 0b000_1_0000, // 0x10
+    Clear = 0b000_0_000,
+}
+
+#[derive(Debug)]
+pub enum CommandDataSize {
+    OneByte = 0b0000_11_00, // 0x0c
+    TwoBytes = 0b0000_10_00, // 0x08
+    ThreeBytes = 0b0000_01_00, // 0x04
+    FourBytes = 0b0000_00_00,
+}
+
+#[derive(Debug)]
+pub enum CommandTransferFlag {
+    Expedited = 0b000000_1_0, // 0x02
+    NotExpedited = 0b000000_0_0,
+}
+
+#[derive(Debug)]
+pub enum CommandSizeFlag {
+    Indicated = 0b0000000_1, // 0x01
+    NotIndicated = 0b0000000_0,
+}
+
 
 impl SDOServerResponse {
     pub fn parse(frame: &CANOpenFrame) -> Result<SDOServerResponse> {

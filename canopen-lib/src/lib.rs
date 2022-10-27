@@ -1,10 +1,10 @@
-pub mod canopen;
+pub mod eds;
 #[allow(unused_must_use)]
 #[allow(unused_variables)]
 pub mod frame;
 pub mod split;
 
-pub use canopen::*;
+pub use eds::*;
 pub use frame::*;
 pub use parse_int::parse;
 

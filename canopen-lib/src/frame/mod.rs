@@ -1,5 +1,9 @@
 mod builders;
 pub use self::builders::*;
+
+pub mod sdo;
+pub use sdo::*;
+
 pub use crate::split::Split;
 
 use core::convert::TryFrom;
@@ -9,8 +13,6 @@ use num_enum::TryFromPrimitive;
 use enum_display_derive::*;
 use std::fmt::Display;
 use tokio_socketcan::CANFrame;
-
-use crate::SDOServerResponse;
 
 #[derive(Debug, Fail)]
 pub enum CANOpenFrameError {
