@@ -1,3 +1,4 @@
+//! CANOpen library
 pub mod eds;
 #[allow(unused_must_use)]
 #[allow(unused_variables)]

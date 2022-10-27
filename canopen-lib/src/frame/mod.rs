@@ -1,3 +1,16 @@
+//! The frame module
+//!
+//! It deals with all types of CANOpen frames.
+//! For every frame type, is provided:
+//! - a builder function
+//! - a format display
+//! - a parser/converter from CAN-Frame
+//! - means to inspect
+//!
+//! The focus is on on the frame static structure. Any (dynamic) context context
+//! information is not of interest in this module. All information that is
+//! intrinsic to CANOpen frames is considered.
+//!
 mod builders;
 pub use self::builders::*;
 
