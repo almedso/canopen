@@ -4,24 +4,26 @@ use std::fmt;
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Fail, Debug)]
-pub enum SDOResult {
+/// Command specifier is a harmonized mix of
+/// client command specifier (ccs) and server command specifier (scs)
+#[derive(Fail, Debug, PartialEq)]
+pub enum CommandSpecifier {
     #[fail(display = "DownloadSegment: Read of n-th segment success")]
-    DownloadSegment,
+    Download,
     #[fail(display = "InitiateDownload: Confirm write of segment or expedited read success")]
     InitiateDownload,
     #[fail(display = "InitiateUpload: First segmented read response success")]
     InitiateUpload,
-    #[fail(display = "Success")]
-    UploadSuccess,
-    #[fail(display = "Failure")]
-    Failure,
+    #[fail(display = "Upload")]
+    Upload,
+    #[fail(display = "Abort")]
+    Abort,
     #[fail(display = "Block upload")]
     BlockUpload,
     #[fail(display = "Block download")]
     BlockDownload,
     #[fail(display = "Code Byte: {}", _0)]
-    UnknownResult(u8),
+    Unspecified(u8),
 }
 
 #[derive(Fail, Debug)]
@@ -141,17 +143,44 @@ impl From<u32> for SDOAbortCode {
 // https://www.motorpowerco.com/media/filer_public/32/c2/32c2f3a8-17cb-4204-8249-ffe5fc4e6c04/bpro_canopen_implementationguide.pdf
 
 
-impl From<u8> for SDOResult {
-    fn from(data: u8) -> SDOResult {
+impl From<u8> for CommandSpecifier {
+    fn from(data: u8) -> CommandSpecifier {
         match data & 0b_111_00000 {
-            0b_000_00000 => SDOResult::DownloadSegment,
-            0b_001_00000 => SDOResult::InitiateDownload,
-            0b_010_00000 => SDOResult::InitiateUpload,
-            0b_011_00000 => SDOResult::UploadSuccess,
-            0b_100_00000 => SDOResult::Failure,
-            0b_101_00000 => SDOResult::BlockUpload,
-            0b_110_00000 => SDOResult::BlockDownload,
-            result => SDOResult::UnknownResult(result),
+            0b_000_00000 => CommandSpecifier::Download,
+            0b_001_00000 => CommandSpecifier::InitiateDownload,
+            0b_010_00000 => CommandSpecifier::InitiateUpload,
+            0b_011_00000 => CommandSpecifier::Upload,
+            0b_100_00000 => CommandSpecifier::Abort,
+            0b_101_00000 => CommandSpecifier::BlockUpload,
+            0b_110_00000 => CommandSpecifier::BlockDownload,
+            _ => CommandSpecifier::Unspecified(data),  // only 0b_111_00000 is possible
+        }
+    }
+}
+
+impl Into<u8> for CommandSpecifier {
+    fn into(self) -> u8 {
+        match self {
+            CommandSpecifier::Download => 0b_000_00000,
+            CommandSpecifier::InitiateDownload => 0b_001_00000,
+            CommandSpecifier::InitiateUpload => 0b_010_00000,
+            CommandSpecifier::Upload => 0b_011_00000,
+            CommandSpecifier::Abort => 0b_100_00000,
+            CommandSpecifier::BlockUpload => 0b_101_00000,
+            CommandSpecifier::BlockDownload => 0b_110_00000,
+            CommandSpecifier::Unspecified(x) => x,
+        }
+    }
+}
+
+impl From<u8> for CommandDataSize {
+    fn from(data: u8) -> CommandDataSize {
+        match data & 0b_0000_11_00 {
+            0b_00000_00_00 => CommandDataSize::FourBytes,
+            0b_00000_01_00 => CommandDataSize::ThreeBytes,
+            0b_00000_10_00 => CommandDataSize::TwoBytes,
+            0b_00000_11_00 => CommandDataSize::OneByte,
+            other_impossible => CommandDataSize::FourBytes,  // cannot happen; please the compiler
         }
     }
 }
@@ -175,14 +204,33 @@ impl fmt::Display for SDOError {
     }
 }
 
+
+// the toggled flag is ignored
+// the expedited flag is always set
+// data size flag is always set
 #[derive(Debug)]
-pub struct SDOServerResponse {
-    pub result: SDOResult,
+pub struct SdoExpeditedFrame {
+    pub cs: CommandSpecifier,
+    pub size: CommandDataSize,
     pub index: u16,
     pub subindex: u8,
     pub data: u32,
 }
 
+#[derive(Debug)]
+pub struct SdoSegmentedFrame {
+    pub cs: CommandSpecifier,
+    pub toggle: bool,
+    // has some value if the sized flag is set
+    pub length_of_empty_bytes: Option<u8>,
+    pub data: [u8; 7],
+}
+
+#[derive(Debug)]
+pub enum SdoFrame {
+    Expedited(SdoExpeditedFrame),
+    Segmented(SdoSegmentedFrame),
+}
 
 #[derive(Debug)]
 pub enum CommandToggleFlag {
@@ -210,43 +258,92 @@ pub enum CommandSizeFlag {
     NotIndicated = 0b0000000_0,
 }
 
+fn is_size_flag_set(command_byte: u8) -> bool {
+    const SIZE_MASK : u8 = 0b00000000_1;
+    (command_byte & SIZE_MASK) != 0
+}
 
-impl SDOServerResponse {
-    pub fn parse(frame: &CANOpenFrame) -> Result<SDOServerResponse> {
+fn is_toggle_flag_set(command_byte: u8) -> bool {
+    const TOGGLE_MASK : u8 = 0b000_1_0000;
+    (command_byte & TOGGLE_MASK) != 0
+}
+
+fn length_of_empty_bytes(command_byte: u8) -> Option<u8> {
+    if is_size_flag_set(command_byte) {
+        const LENGTH_MASK : u8 = 0b0000_111_0;
+        let l = (command_byte & LENGTH_MASK) >> 1;
+        Some(l)
+    } else {
+        None
+    }
+}
+
+impl SdoFrame {
+    pub fn parse(frame: &CANOpenFrame) -> Result<SdoFrame> {
         match frame.frame_type() {
             FrameType::SsdoTx | FrameType::SsdoRx => {
                 let data = frame.data();
-                Ok(SDOServerResponse {
-                    result: data[0].into(),
-                    index: (data[1] as u16) + ((data[2] as u16) << 8), // this is little endian
-                    subindex: data[3],
-                    data: (data[4] as u32)
-                        + ((data[5] as u32) << 8)
-                        + ((data[6] as u32) << 16)
-                        + ((data[7] as u32) << 24), // this is little endian
-                })
+                let command_specifier: CommandSpecifier = data[0].into();
+                match command_specifier {
+                    CommandSpecifier::Abort | CommandSpecifier::Download | CommandSpecifier::Upload =>
+                    Ok(SdoFrame::Expedited( SdoExpeditedFrame {
+                        cs: command_specifier,
+                        size: data[0].into(),
+                        index: (data[1] as u16) + ((data[2] as u16) << 8), // this is little endian
+                        subindex: data[3],
+                        data: (data[4] as u32)
+                            + ((data[5] as u32) << 8)
+                            + ((data[6] as u32) << 16)
+                            + ((data[7] as u32) << 24), // this is little endian
+                    })),
+                    _ => {
+                        Ok(SdoFrame::Segmented ( SdoSegmentedFrame {
+                            cs: command_specifier,
+                            toggle: is_toggle_flag_set(data[0]),
+                            length_of_empty_bytes: length_of_empty_bytes(data[0]),
+                            data: [ data[1], data[2], data[3], data[4], data[5], data[6],data[7]],
+                        }))
+                    }
+                }
+
             }
             _ => Err(SDOError::new("SDO frame parse error").into()),
         }
     }
 }
 
-impl std::fmt::Display for SDOServerResponse {
+impl std::fmt::Display for SdoFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        match self.result {
-            SDOResult::Failure => write!(
-                f,
-                "{} - {:#04x},{:#02x} {}\t",
-                self.result,
-                self.index,
-                self.subindex,
-                SDOAbortCode::from(self.data)
-            )?,
-            _ => write!(
-                f,
-                "{} - {:#04x},{:#02x} [{:#x}]\t",
-                self.result, self.index, self.subindex, self.data
-            )?,
+        match self {
+            SdoFrame::Expedited(x) => {
+
+                // CommandSpecifier::Failure => write!(
+                //     f,
+                //     "{} - {:#04x},{:#02x} {}\t",
+                //     xf.cs,
+                //     x.index,
+                //     x.subindex,
+                //     SDOAbortCode::from(self.data)
+                // )?,
+                // _ => write!(
+                //     f,
+                //     "{} - {:#04x},{:#02x} [{:#x}]\t",
+                //     x.cs, x.index, x.subindex, x.data
+                // )?,
+            }
+            SdoFrame::Segmented(x) => { 
+                // write!(
+            //     f,
+            //     "{} - {:#04x},{:#02x} {}\t",
+            //     x.cs,
+            //     x.data,
+            // )?,
+            // _ => write!(
+            //     f,
+            //     "{} - {:#04x},{:#02x} [{:#x}]\t",
+            //     self.result, self.index, self.subindex, self.data
+            // )?,
+            }
         }
         Ok(())
     }
@@ -256,7 +353,52 @@ impl std::fmt::Display for SDOServerResponse {
 mod tests {
     use super::*;
 
-    #[ignore]
     #[test]
-    fn main() {}
+    fn u8_into_command_specifier() {
+        //assert_eq!(0b_000_00000_u8, CommandSpecifier::DownloadSegment.into());
+        assert_eq!(sdo::CommandSpecifier::Download, 0b_000_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::InitiateDownload, 0b_001_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::InitiateUpload, 0b_010_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::Upload, 0b_011_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::Abort, 0b_100_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::BlockUpload, 0b_101_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::BlockDownload, 0b_110_00001_u8.into());
+        assert_eq!(sdo::CommandSpecifier::Unspecified(0b111_00001), 0b_111_00001_u8.into());
+    }
+
+    #[test]
+    fn u8_into_command_specifier_and_back() {
+        for i in 0_u8..=210 {
+            let cs: CommandSpecifier = i.into();
+            if i & 0b_111_00000 == 0b_111_00000 {
+                assert_eq!(i, cs.into())
+            } else {
+                assert_eq!(  i & 0b_111_00000_u8, cs.into());
+            }
+
+
+        }
+    }
+
+    #[test]
+    fn test_is_size_flag_set() {
+        assert!( is_size_flag_set(0b1) );
+        assert!( ! is_size_flag_set(0b0) );
+        assert!( is_size_flag_set(0b1001) );
+        assert!( ! is_size_flag_set(0b111110) );
+
+    }
+
+    #[test]
+    fn test_is_toggle_flag_set() {
+        assert!( is_toggle_flag_set(0b000_1_0000) );
+        assert!( ! is_toggle_flag_set(0b000_0_0000) );
+        assert!( is_toggle_flag_set(0b010_1_0000) );
+        assert!( ! is_toggle_flag_set(0b000_0_0001) );
+    }
+
+    #[test]
+    fn test_length_of_empty_bytes() {
+        todo!("test it");
+    }
 }

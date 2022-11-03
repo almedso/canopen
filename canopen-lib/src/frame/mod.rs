@@ -73,7 +73,7 @@ impl std::fmt::Display for CANOpenFrame {
         match self._frame_type {
             FrameType::SsdoTx | FrameType::SsdoRx => {
                 write!(f, "0x{:02X} \t", self._node_id)?;
-                let sdo_response = SDOServerResponse::parse(self).map_err(|_| std::fmt::Error)?;
+                let sdo_response = SdoFrame::parse(self).map_err(|_| std::fmt::Error)?;
                 write!(f, "{}", sdo_response);
             }
             FrameType::Tpdo1
