@@ -16,6 +16,7 @@ use tokio_socketcan::{CANFrame, CANSocket};
 use bdd::{read_remote_object, write_remote_object, ValueType};
 use col::{
     self, nodeid_parser, parse_payload_as_byte_sequence_semicolon_delimited, pdo_cobid_parser,
+    CanOpenFrameBuilder,
 };
 
 async fn play_timeout(timeout_in_ms: u32) -> () {
@@ -88,8 +89,12 @@ async fn expect_node_sends_nmt_heartbeat(w: &mut World, node: String) {
 async fn stimulus_send_pdo(w: &mut World, cob: String, payload: String) {
     let cob_id = pdo_cobid_parser(&cob).unwrap();
     let (data, len) = parse_payload_as_byte_sequence_semicolon_delimited(&payload);
-    let frame: CANFrame = col::CANOpenFrame::new_with_rtr(cob_id, &data[0..len], false)
+    let frame = CanOpenFrameBuilder::default()
+        .pdo(cob_id)
         .unwrap()
+        .payload(&data[0..len])
+        .unwrap()
+        .build()
         .into();
     w.cansocket.write_frame(frame).unwrap().await.unwrap();
 }

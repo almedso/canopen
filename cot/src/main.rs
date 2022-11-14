@@ -4,23 +4,18 @@ use clap_verbosity_flag::Verbosity;
 use log::{debug, error, info};
 use std::io::Write;
 
-use futures_timer::Delay;
 use futures_util::StreamExt;
 use hex_slice::AsHex;
-use std::time::Duration;
-// use tokio;
-use tokio_socketcan::{CANFrame, CANSocket};
+use tokio_socketcan::CANSocket;
 
-use col::{self, nodeid_parser, pdo_cobid_parser, sdo::SDOServerResponse};
+use col::{self, sdo_client::SdoClient, CanOpenFrameBuilder};
+use col::{nodeid_parser, pdo_cobid_parser};
 use parse_int::parse;
 
-use futures::{
-    future::FutureExt, // for `.fuse()`
-    pin_mut,
-    select,
-};
-
 use std::time::Instant;
+
+use col::Split;
+
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -44,6 +39,10 @@ enum ValueType {
     U16,
     U32,
     U64,
+    I8,
+    I16,
+    I32,
+    F32,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
@@ -60,7 +59,7 @@ enum Commands {
     /// Read object directory
     Rod {
         /// NodeId - range 0 .. 127 aka 0x00 .. 0x7f
-        #[clap(value_parser = parse::<u8>)]
+        #[clap(value_parser = nodeid_parser)]
         node: u8,
 
         /// Object index - range 0x0000 .. 0xffff
@@ -75,7 +74,7 @@ enum Commands {
     /// Write object directory
     Wod {
         /// NodeId - range 0..127 aka 0x00 .. 0x7f
-        #[clap(value_parser = parse::<u8>)]
+        #[clap(value_parser = nodeid_parser)]
         node: u8,
 
         /// Object index - range 0x0000 .. 0xffff
@@ -134,181 +133,181 @@ enum Commands {
     },
 }
 
-async fn client_server_communication_timeout() {
-    debug!("Set response timeout to 3 seconds");
-    let _timeout = Delay::new(Duration::from_secs(3)).await;
-}
+// async fn client_server_communication_timeout() {
+//     debug!("Set response timeout to 3 seconds");
+//     let _timeout = Delay::new(Duration::from_secs(3)).await;
+// }
 
-async fn write_remote_object(
-    can_socket: &mut CANSocket,
-    node: u8,
-    index: u16,
-    subindex: u8,
-    value_type: ValueType,
-    value: u32,
-) {
-    const SDO_RECEIVE: u32 = 0x600;
-    let frame: CANFrame = match value_type {
-        ValueType::U8 => {
-            col::download_1_byte_frame(node, SDO_RECEIVE, index, subindex, value as u8)
-                .unwrap()
-                .into()
-        }
-        ValueType::U16 => {
-            let buffer: [u8; 2] = [
-                // little endian encoded
-                (value & 0xff_u32) as u8,
-                ((value >> 8) & 0xff_u32) as u8,
-            ];
-            col::download_2_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
-                .unwrap()
-                .into()
-        }
-        ValueType::U32 => {
-            let buffer: [u8; 4] = [
-                // little endian encoded
-                (value & 0xff_u32) as u8,
-                ((value >> 8) & 0xff_u32) as u8,
-                ((value >> 16) & 0xff_u32) as u8,
-                ((value >> 24) & 0xff_u32) as u8,
-            ];
-            col::download_4_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
-                .unwrap()
-                .into()
-        }
-        _ => {
-            error!("{:?} is not supported for this SDO", value_type);
-            col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
-                .unwrap()
-                .into()
-        }
-    };
+// async fn write_remote_object(
+//     can_socket: &mut CANSocket,
+//     node: u8,
+//     index: u16,
+//     subindex: u8,
+//     value_type: ValueType,
+//     value: u32,
+// ) {
+//     const SDO_RECEIVE: u32 = 0x600;
+//     let frame: CANFrame = match value_type {
+//         ValueType::U8 => {
+//             col::download_1_byte_frame(node, SDO_RECEIVE, index, subindex, value as u8)
+//                 .unwrap()
+//                 .into()
+//         }
+//         ValueType::U16 => {
+//             let buffer: [u8; 2] = [
+//                 // little endian encoded
+//                 (value & 0xff_u32) as u8,
+//                 ((value >> 8) & 0xff_u32) as u8,
+//             ];
+//             col::download_2_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
+//                 .unwrap()
+//                 .into()
+//         }
+//         ValueType::U32 => {
+//             let buffer: [u8; 4] = [
+//                 // little endian encoded
+//                 (value & 0xff_u32) as u8,
+//                 ((value >> 8) & 0xff_u32) as u8,
+//                 ((value >> 16) & 0xff_u32) as u8,
+//                 ((value >> 24) & 0xff_u32) as u8,
+//             ];
+//             col::download_4_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
+//                 .unwrap()
+//                 .into()
+//         }
+//         _ => {
+//             error!("{:?} is not supported for this SDO", value_type);
+//             col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
+//                 .unwrap()
+//                 .into()
+//         }
+//     };
 
-    match match can_socket.write_frame(frame) {
-        Ok(x) => x,
-        Err(error) => {
-            error!("Error instancing write: {}", error);
-            quit::with_code(1);
-        }
-    }
-    .await
-    {
-        Ok(_) => (),
-        Err(error) => {
-            error!("Error writing: {}", error);
-            quit::with_code(1);
-        }
-    }
+//     match match can_socket.write_frame(frame) {
+//         Ok(x) => x,
+//         Err(error) => {
+//             error!("Error instancing write: {}", error);
+//             quit::with_code(1);
+//         }
+//     }
+//     .await
+//     {
+//         Ok(_) => (),
+//         Err(error) => {
+//             error!("Error writing: {}", error);
+//             quit::with_code(1);
+//         }
+//     }
 
-    // read the response
-    while let Some(Ok(frame)) = can_socket.next().await {
-        match col::CANOpenFrame::try_from(frame) {
-            Ok(frame) => {
-                if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SsdoTx {
-                    break;
-                }
-            }
-            Err(e) => {
-                error!("{}", e);
-                break;
-            }
-        }
-    }
-}
+//     // read the response
+//     while let Some(Ok(frame)) = can_socket.next().await {
+//         match col::CANOpenFrame::try_from(frame) {
+//             Ok(frame) => {
+//                 if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SdoTx {
+//                     break;
+//                 }
+//             }
+//             Err(e) => {
+//                 error!("{}", e);
+//                 break;
+//             }
+//         }
+//     }
+// }
 
-async fn write_remote_object_with_acknowledge_check(
-    can_socket: &mut CANSocket,
-    node: u8,
-    index: u16,
-    subindex: u8,
-    value_type: ValueType,
-    value: u32,
-) {
-    let worker = write_remote_object(can_socket, node, index, subindex, value_type, value).fuse();
-    let timeout = client_server_communication_timeout().fuse();
+// async fn write_remote_object_with_acknowledge_check(
+//     can_socket: &mut CANSocket,
+//     node: u8,
+//     index: u16,
+//     subindex: u8,
+//     value_type: ValueType,
+//     value: u32,
+// ) {
+//     let worker = write_remote_object(can_socket, node, index, subindex, value_type, value).fuse();
+//     let timeout = client_server_communication_timeout().fuse();
 
-    pin_mut!(worker, timeout);
+//     pin_mut!(worker, timeout);
 
-    select! {
-        () = worker => info!("Remote object has been updated"),
-        () = timeout => {
-            error!("Error: Object directory writing not acknowledged within 3 sec timeout");
-            quit::with_code(1);
-        }
-    }
-}
+//     select! {
+//         () = worker => info!("Remote object has been updated"),
+//         () = timeout => {
+//             error!("Error: Object directory writing not acknowledged within 3 sec timeout");
+//             quit::with_code(1);
+//         }
+//     }
+// }
 
-async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) {
-    const SDO_RECEIVE: u32 = 0x600;
-    let frame: CANFrame = col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
-        .unwrap()
-        .into();
-    match match can_socket.write_frame(frame) {
-        Ok(x) => x,
-        Err(error) => {
-            error!("Error instancing write: {}", error);
-            quit::with_code(1);
-        }
-    }
-    .await
-    {
-        Ok(_) => (),
-        Err(error) => {
-            error!("Error writing: {}", error);
-            quit::with_code(1);
-        }
-    }
+// async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) {
+//     const SDO_RECEIVE: u32 = 0x600;
+//     let frame: CANFrame = col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
+//         .unwrap()
+//         .into();
+//     match match can_socket.write_frame(frame) {
+//         Ok(x) => x,
+//         Err(error) => {
+//             error!("Error instancing write: {}", error);
+//             quit::with_code(1);
+//         }
+//     }
+//     .await
+//     {
+//         Ok(_) => (),
+//         Err(error) => {
+//             error!("Error writing: {}", error);
+//             quit::with_code(1);
+//         }
+//     }
 
-    // read the response
-    while let Some(Ok(frame)) = can_socket.next().await {
-        match col::CANOpenFrame::try_from(frame) {
-            Ok(frame) => {
-                if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SsdoTx {
-                    let sdo_response = SDOServerResponse::parse(&frame)
-                        .map_err(|x| error!("{}", x))
-                        .unwrap();
-                    if sdo_response.index == index && sdo_response.subindex == subindex {
-                        println!(
-                            "CANOpen Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
-                            index, subindex, node, sdo_response.data
-                        );
-                        break;
-                    } else {
-                        println!(
-                            "CANOpen -- Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
-                            sdo_response.index, sdo_response.subindex, node, sdo_response.data
-                        );
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                error!("{}", e);
-                break;
-            }
-        }
-    }
-}
+//     // read the response
+//     while let Some(Ok(frame)) = can_socket.next().await {
+//         match col::CANOpenFrame::try_from(frame) {
+//             Ok(frame) => {
+//                 if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SdoTx {
+//                     let sdo_response = SdoFrame::parse(&frame)
+//                         .map_err(|x| error!("{}", x))
+//                         .unwrap();
+//                     if sdo_response.index == index && sdo_response.subindex == subindex {
+//                         println!(
+//                             "CANOpen Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
+//                             index, subindex, node, sdo_response.data
+//                         );
+//                         break;
+//                     } else {
+//                         println!(
+//                             "CANOpen -- Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
+//                             sdo_response.index, sdo_response.subindex, node, sdo_response.data
+//                         );
+//                         break;
+//                     }
+//                 }
+//             }
+//             Err(e) => {
+//                 error!("{}", e);
+//                 break;
+//             }
+//         }
+//     }
+// }
 
-async fn read_remote_object_with_acknowledge_check(
-    can_socket: &mut CANSocket,
-    node: u8,
-    index: u16,
-    subindex: u8,
-) {
-    let worker = read_remote_object(can_socket, node, index, subindex).fuse();
-    let timeout = client_server_communication_timeout().fuse();
+// async fn read_remote_object_with_acknowledge_check(
+//     can_socket: &mut CANSocket,
+//     node: u8,
+//     index: u16,
+//     subindex: u8,
+// ) {
+//     let worker = read_remote_object(can_socket, node, index, subindex).fuse();
+//     let timeout = client_server_communication_timeout().fuse();
 
-    pin_mut!(worker, timeout);
+//     pin_mut!(worker, timeout);
 
-    select! {
-        () = worker => info!("Remote object has been updated"),
-        () = timeout => {
-            error!("Error: Object directory reading not responded within 3 sec timeout");
-            quit::with_code(1);
-        }
-    }
-}
+//     select! {
+//         () = worker => info!("Remote object has been updated"),
+//         () = timeout => {
+//             error!("Error: Object directory reading not responded within 3 sec timeout");
+//             quit::with_code(1);
+//         }
+//     }
+// }
 
 async fn send_pdo(
     can_socket: &mut CANSocket,
@@ -354,10 +353,18 @@ async fn send_pdo(
             ];
             &buffer[0..=7]
         }
+        _ => {
+            error!("Not supported type");
+            quit::with_code(1);
+        }
     };
-    let frame: CANFrame = col::CANOpenFrame::new_with_rtr(cob_id as u32, data, is_rtr)
+    let builder = CanOpenFrameBuilder::default()
+        .set_rtr(is_rtr)
+        .pdo(cob_id)
         .unwrap()
-        .into();
+        .payload(data)
+        .unwrap();
+    let frame = builder.build().into();
     match can_socket.write_frame(frame) {
         Ok(x) => x,
         Err(error) => {
@@ -407,13 +414,16 @@ fn main() {
                 subindex,
             }) => {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
-                read_remote_object_with_acknowledge_check(
-                    &mut can_socket,
-                    *node,
-                    *index,
-                    *subindex,
-                )
-                .await;
+                let mut sdo_client = SdoClient::new(*node, can_socket);
+                let mut data = [0_u8; 4];
+                match sdo_client.read_object(*index, *subindex, &mut data).await {
+                    Ok(len) => {
+                        println!("Object {:x}@{:x},{:x} value {:?}", *node, *index, *subindex,  &data[0..len]);
+                    }
+                    Err(error) => {
+                        println!("Error {}", error);
+                    }
+                }
             }
             Some(Commands::Wod {
                 node,
@@ -426,15 +436,40 @@ fn main() {
                     "Write Communication Object: {}@{},{} -> {}",
                     node, index, subindex, value
                 );
-                write_remote_object_with_acknowledge_check(
-                    &mut can_socket,
-                    *node,
-                    *index,
-                    *subindex,
-                    *value_type,
-                    *value,
-                )
-                .await;
+
+                let mut sdo_client = SdoClient::new(*node, can_socket);
+                let mut data = [0_u8; 4];
+                let mut len = 0_usize;
+                match value_type {
+                    ValueType::U32 => {
+                        data[0] = (*value).lo().lo();
+                        data[1] = (*value).lo().hi();
+                        data[2] = (*value).hi().lo();
+                        data[3] = (*value).hi().hi();
+                        len = 4;
+                    }
+                    ValueType::U16 => {
+                        data[0] = (*value as u16).lo();
+                        data[1] = (*value as u16).hi();
+                        len = 2;
+                    }
+                    ValueType::U8 => {
+                        data[0] = *value as u8;
+                        len = 1;
+                    }
+                    _ =>  {}
+                }
+                debug!(
+                    "Raw Buffer: {:?}",&data[0..len]);
+                match sdo_client.write_object(*index, *subindex, &data[0..len]).await {
+                    Ok(()) => {
+                        println!("Success");
+                    }
+                    Err(error) => {
+                        println!("Error {}", error);
+                        quit::with_code(1);
+                    }
+                }
             }
             Some(Commands::Pdo {
                 cobid,
@@ -467,8 +502,8 @@ fn main() {
                 let all_frame_types = vec![
                     col::FrameType::NmtErrorControl,
                     col::FrameType::Nmt,
-                    col::FrameType::SsdoRx,
-                    col::FrameType::SsdoTx,
+                    col::FrameType::SdoRx,
+                    col::FrameType::SdoTx,
                     col::FrameType::Rpdo1,
                     col::FrameType::Rpdo2,
                     col::FrameType::Rpdo3,
@@ -493,14 +528,14 @@ fn main() {
                             col::FrameType::Tpdo4,
                         ],
                         FrameType::Sdo => [
-                            col::FrameType::SsdoRx,
-                            col::FrameType::SsdoTx,
-                            col::FrameType::SsdoRx,
-                            col::FrameType::SsdoTx,
-                            col::FrameType::SsdoRx,
-                            col::FrameType::SsdoTx,
-                            col::FrameType::SsdoRx,
-                            col::FrameType::SsdoTx,
+                            col::FrameType::SdoRx,
+                            col::FrameType::SdoTx,
+                            col::FrameType::SdoRx,
+                            col::FrameType::SdoTx,
+                            col::FrameType::SdoRx,
+                            col::FrameType::SdoTx,
+                            col::FrameType::SdoRx,
+                            col::FrameType::SdoTx,
                         ],
                         FrameType::Nmt => [
                             col::FrameType::Nmt,
