@@ -51,9 +51,9 @@ pub enum ClientCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
     DownloadSegment = 0b_000_00000,
     #[allow(clippy::unusual_byte_groupings)]
-    InitiateDownload = 0b_001_00000,
+    Download = 0b_001_00000,
     #[allow(clippy::unusual_byte_groupings)]
-    InitiateUpload = 0b_010_00000,
+    Upload = 0b_010_00000,
     #[allow(clippy::unusual_byte_groupings)]
     UploadSegment = 0b_011_00000,
 
@@ -64,7 +64,27 @@ pub enum ClientCommandSpecifier {
 
     #[allow(clippy::unusual_byte_groupings)]
     Unspecified = 0b_111_00000,
+}
 
+impl From<u8> for ClientCommandSpecifier {
+    fn from(data: u8) -> ClientCommandSpecifier {
+        #[allow(clippy::unusual_byte_groupings)]
+        match data & 0b_111_00000 {
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_000_00000 => ClientCommandSpecifier::DownloadSegment,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_001_00000 => ClientCommandSpecifier::Download,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_010_00000 => ClientCommandSpecifier::Upload,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_011_00000 => ClientCommandSpecifier::UploadSegment,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_101_00000 => ClientCommandSpecifier::BlockUpload,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_110_00000 => ClientCommandSpecifier::BlockDownload,
+            _ => ClientCommandSpecifier::Unspecified,
+        }
+    }
 }
 
 /// Server command specifier (scs)
@@ -74,14 +94,13 @@ pub enum ClientCommandSpecifier {
 #[derive(Display, Debug, PartialEq, Clone)]
 pub enum ServerCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
-    DownloadSegment = 0b_000_00000,
+    UploadSegment = 0b_000_00000,
     #[allow(clippy::unusual_byte_groupings)]
-    Download = 0b_001_00000,
+    DownloadSegment = 0b_001_00000,
     #[allow(clippy::unusual_byte_groupings)]
-    UploadResponse = 0b_010_00000,
-
+    Upload = 0b_010_00000,
     #[allow(clippy::unusual_byte_groupings)]
-    DownloadResponse = 0b_011_00000,
+    Download = 0b_011_00000,
     #[allow(clippy::unusual_byte_groupings)]
     Abort = 0b_100_00000,
 
@@ -94,6 +113,28 @@ pub enum ServerCommandSpecifier {
     Unspecified = 0b_111_00000,
 }
 
+impl From<u8> for ServerCommandSpecifier {
+    fn from(data: u8) -> ServerCommandSpecifier {
+        #[allow(clippy::unusual_byte_groupings)]
+        match data & 0b_111_00000 {
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_000_00000 => ServerCommandSpecifier::UploadSegment,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_001_00000 => ServerCommandSpecifier::DownloadSegment,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_010_00000 => ServerCommandSpecifier::Upload,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_011_00000 => ServerCommandSpecifier::Download,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_100_00000 => ServerCommandSpecifier::Abort,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_101_00000 => ServerCommandSpecifier::BlockUpload,
+            #[allow(clippy::unusual_byte_groupings)]
+            0b_110_00000 => ServerCommandSpecifier::BlockDownload,
+            _ => ServerCommandSpecifier::Unspecified,
+        }
+    }
+}
 
 /// Can be either server side command code or client side command code
 #[derive(Debug, PartialEq, Clone)]
@@ -267,51 +308,6 @@ impl Into<u32> for SDOAbortCode {
     }
 }
 
-impl From<u8> for ClientCommandSpecifier {
-    fn from(data: u8) -> ClientCommandSpecifier {
-        #[allow(clippy::unusual_byte_groupings)]
-        match data & 0b_111_00000 {
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_000_00000 => ClientCommandSpecifier::DownloadSegment,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_001_00000 => ClientCommandSpecifier::InitiateDownload,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_010_00000 => ClientCommandSpecifier::InitiateUpload,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_011_00000 => ClientCommandSpecifier::UploadSegment,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_101_00000 => ClientCommandSpecifier::BlockUpload,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_110_00000 => ClientCommandSpecifier::BlockDownload,
-            _ => ClientCommandSpecifier::Unspecified,
-        }
-    }
-}
-
-
-impl From<u8> for ServerCommandSpecifier {
-    fn from(data: u8) -> ServerCommandSpecifier {
-        #[allow(clippy::unusual_byte_groupings)]
-        match data & 0b_111_00000 {
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_000_00000 => ServerCommandSpecifier::DownloadSegment,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_001_00000 => ServerCommandSpecifier::Download,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_010_00000 => ServerCommandSpecifier::UploadResponse,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_011_00000 => ServerCommandSpecifier::DownloadResponse,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_100_00000 => ServerCommandSpecifier::Abort,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_101_00000 => ServerCommandSpecifier::BlockUpload,
-            #[allow(clippy::unusual_byte_groupings)]
-            0b_110_00000 => ServerCommandSpecifier::BlockDownload,
-            _ => ServerCommandSpecifier::Unspecified,
-        }
-    }
-}
-
 impl From<u8> for CommandDataSize {
     fn from(data: u8) -> CommandDataSize {
         #[allow(clippy::unusual_byte_groupings)]
@@ -441,7 +437,11 @@ impl WithIndexPayload {
     pub fn parse_as_server_payload(data: SdoPayloadData) -> Result<WithIndexPayload, CanOpenError> {
         let command_specifier: ServerCommandSpecifier = data[0].into();
         match command_specifier {
-            ServerCommandSpecifier::Abort | ServerCommandSpecifier::DownloadSegment | ServerCommandSpecifier::Download  => {
+            ServerCommandSpecifier::Abort
+            | ServerCommandSpecifier::Upload
+            | ServerCommandSpecifier::UploadSegment
+            | ServerCommandSpecifier::Download
+            | ServerCommandSpecifier::DownloadSegment => {
                 Ok(WithIndexPayload {
                     cs: CommandSpecifier::Scs(command_specifier),
                     size: data[0].into(),
@@ -462,8 +462,8 @@ impl WithIndexPayload {
     pub fn parse_as_client_payload(payload: SdoPayloadData) -> Result<Self, CanOpenError> {
         let command_specifier = ClientCommandSpecifier::from(payload[0]);
         match command_specifier {
-            ClientCommandSpecifier::InitiateDownload
-            | ClientCommandSpecifier::InitiateUpload
+            ClientCommandSpecifier::Download
+            | ClientCommandSpecifier::Upload
             | ClientCommandSpecifier::UploadSegment => Ok(WithIndexPayload {
                 cs: CommandSpecifier::Ccs(command_specifier),
                 size: CommandDataSize::from(payload[0]),
@@ -477,10 +477,12 @@ impl WithIndexPayload {
                     + ((payload[6] as u32) << 16)
                     + ((payload[7] as u32) << 24),
             }),
-            ClientCommandSpecifier::BlockDownload
-            | ClientCommandSpecifier::BlockUpload => Err(CanOpenError::SdoPayloadNotImplementedYet),
-            ClientCommandSpecifier::DownloadSegment
-            | ClientCommandSpecifier::Unspecified => Err(CanOpenError::SdoPayloadParseError),
+            ClientCommandSpecifier::BlockDownload | ClientCommandSpecifier::BlockUpload => {
+                Err(CanOpenError::SdoPayloadNotImplementedYet)
+            }
+            ClientCommandSpecifier::DownloadSegment | ClientCommandSpecifier::Unspecified => {
+                Err(CanOpenError::SdoPayloadParseError)
+            }
         }
     }
 }
@@ -516,7 +518,6 @@ impl Into<SdoPayloadData> for WithIndexPayload {
     }
 }
 
-
 impl std::fmt::Display for WithIndexPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         if self.cs == CommandSpecifier::Scs(ServerCommandSpecifier::Abort) {
@@ -540,20 +541,21 @@ impl std::fmt::Display for WithIndexPayload {
 }
 
 impl WithoutIndexPayload {
-
     pub fn parse_as_server_payload(payload: SdoPayloadData) -> Result<Self, CanOpenError> {
         let server_command_specifier = ServerCommandSpecifier::from(payload[0]);
         match server_command_specifier {
-
-            ServerCommandSpecifier::UploadResponse => Ok(WithoutIndexPayload {
+            ServerCommandSpecifier::Upload => Ok(WithoutIndexPayload {
                 cs: CommandSpecifier::Scs(server_command_specifier),
-                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(payload[0]),
+                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
+                    payload[0],
+                ),
                 #[allow(clippy::unusual_byte_groupings)]
                 toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
 
-                data: [ payload[1], payload[2], payload[3], payload[4],
-                        payload[5], payload[6], payload[7],
-                ]
+                data: [
+                    payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+                    payload[7],
+                ],
             }),
             _ => Err(CanOpenError::SdoPayloadParseError),
         }
@@ -564,26 +566,28 @@ impl WithoutIndexPayload {
         match client_command_specifier {
             ClientCommandSpecifier::UploadSegment => Ok(WithoutIndexPayload {
                 cs: CommandSpecifier::Ccs(client_command_specifier),
-                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(payload[0]),
+                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
+                    payload[0],
+                ),
                 #[allow(clippy::unusual_byte_groupings)]
                 toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
 
-                data: [ payload[1], payload[2], payload[3], payload[4],
-                        payload[5], payload[6], payload[7],
-                ]
+                data: [
+                    payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+                    payload[7],
+                ],
             }),
             _ => Err(CanOpenError::SdoPayloadParseError),
         }
     }
 
     fn get_length_from_command_byte(command_byte: u8) -> Option<u8> {
-        if (command_byte & 0x01 ) == 0x00 {
+        if (command_byte & 0x01) == 0x00 {
             None
         } else {
-            Some((command_byte & 0b0000_1110 ) >> 1)
+            Some((command_byte & 0b0000_1110) >> 1)
         }
     }
-
 }
 
 #[allow(clippy::from_over_into)]
@@ -603,7 +607,6 @@ impl Into<SdoPayloadData> for WithoutIndexPayload {
                 0b0000_000_1_u8 + // size bit is set
                 ((x & 0b111_u8 ) << 1)
             }
-
         };
         let command_specifier: u8 = self.cs.into();
 
@@ -619,7 +622,6 @@ impl Into<SdoPayloadData> for WithoutIndexPayload {
         ]
     }
 }
-
 
 impl std::fmt::Display for WithoutIndexPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
@@ -652,8 +654,6 @@ pub fn extract_length(size: CommandDataSize) -> usize {
 mod tests {
     use super::*;
 
-
-
     #[test]
     fn test_is_size_flag_set() {
         assert!(is_size_flag_set(0b1));
@@ -684,7 +684,10 @@ mod tests {
 
     #[allow(non_snake_case)]
     mod WithIndexPayload {
-        use crate::{CommandDataSize, CommandSpecifier, ClientCommandSpecifier, SdoPayloadData, WithIndexPayload};
+        use crate::{
+            ClientCommandSpecifier, CommandDataSize, CommandSpecifier, SdoPayloadData,
+            WithIndexPayload,
+        };
 
         #[test]
         fn into_conversion() {

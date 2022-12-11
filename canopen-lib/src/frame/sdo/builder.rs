@@ -92,7 +92,6 @@ impl SdoFrameBuilder {
     }
 }
 
-
 #[derive(Clone)]
 pub struct WithIndexFrameBuilder {
     node_id: u8,
@@ -132,7 +131,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn download_one_byte(mut self, data: u8) -> Self {
-        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateDownload);
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
         self.size = CommandDataSize::OneByte;
         self.data = data as u32 & 0xff_u32;
         self.expedited_flag = true;
@@ -140,7 +139,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn download_two_bytes(mut self, data: u16) -> Self {
-        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateDownload);
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
         self.size = CommandDataSize::TwoBytes;
         self.data = data as u32 & 0xffff_u32;
         self.expedited_flag = true;
@@ -148,15 +147,23 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn download_four_bytes(mut self, data: u32) -> Self {
-        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateDownload);
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
         self.size = CommandDataSize::FourBytes;
         self.data = data;
         self.expedited_flag = true;
         self
     }
 
+    pub fn download_segmented_request(mut self, len: u32) -> Self {
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
+        self.size = CommandDataSize::FourBytes; // not used but size bit must be set
+        self.data = len;
+        self.expedited_flag = false;
+        self
+    }
+
     pub fn download_response(mut self) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::DownloadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Download);
         self.size = CommandDataSize::NotSet;
         self.expedited_flag = false;
         self.data = 0;
@@ -164,7 +171,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_request(mut self) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::NotSet; // all zero
         self.expedited_flag = false;
         self.data = 0;
@@ -172,7 +179,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_one_byte_expedited_response(mut self, data: u8) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::OneByte;
         self.data = data as u32 & 0xff_u32;
         self.expedited_flag = true;
@@ -180,7 +187,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_two_bytes_response_expedited_response(mut self, data: u16) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::TwoBytes;
         self.data = data as u32 & 0xffff_u32;
         self.expedited_flag = true;
@@ -188,7 +195,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_three_bytes_expedited_response(mut self, data: u32) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::ThreeBytes;
         self.data = data & 0x00ffffff_u32;
         self.expedited_flag = true;
@@ -196,7 +203,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_four_bytes_expedited_response(mut self, data: u32) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::FourBytes;
         self.data = data;
         self.expedited_flag = true;
@@ -204,15 +211,15 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_segmented_response(mut self, length: u32) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::Upload);
         self.size = CommandDataSize::FourBytes;
         self.data = length;
-        self.expedited_flag = false;  // this indicates that next frames will be segmented payload
+        self.expedited_flag = false; // this indicates that next frames will be segmented payload
         self
     }
 
     pub fn download(mut self, data: &[u8]) -> Self {
-        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateDownload);
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
         match data.len() {
             4 => {
                 self.size = CommandDataSize::FourBytes;
@@ -249,7 +256,7 @@ impl WithIndexFrameBuilder {
     }
 
     pub fn upload_expedited_response(mut self, data: &[u8]) -> Self {
-        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateUpload);
+        self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Upload);
         match data.len() {
             4 => {
                 self.size = CommandDataSize::FourBytes;
@@ -298,9 +305,8 @@ pub struct WithoutIndexFrameBuilder {
 }
 
 impl WithoutIndexFrameBuilder {
-
     pub fn build(&mut self) -> CANOpenFrame {
-        self.toggle = ! self.toggle;
+        self.toggle = !self.toggle;
         CANOpenFrame {
             _node_id: self.node_id,
             _frame_type: self.frame_type,
@@ -323,10 +329,10 @@ impl WithoutIndexFrameBuilder {
     }
 
     pub fn upload_response(mut self, data: &[u8]) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::DownloadSegment);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::UploadSegment);
         let len = data.len();
         self.length_of_empty_bytes = if len < 7 {
-            Some (7u8 - (len as u8))
+            Some(7u8 - (len as u8))
         } else {
             None
         };
@@ -345,7 +351,7 @@ impl WithoutIndexFrameBuilder {
         self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::DownloadSegment);
         let len = data.len();
         self.length_of_empty_bytes = if len < 7 {
-            Some (7u8 - (len as u8))
+            Some(7u8 - (len as u8))
         } else {
             None
         };
@@ -361,13 +367,12 @@ impl WithoutIndexFrameBuilder {
     }
 
     pub fn download_response(mut self) -> Self {
-        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::DownloadResponse);
+        self.command_specifier = CommandSpecifier::Scs(ServerCommandSpecifier::DownloadSegment);
         self.length_of_empty_bytes = Some(0);
         self.data = [0_u8; 7];
         // do not toggle the toggle bit - this is done by build
         self
     }
-
 }
 
 #[cfg(test)]
@@ -545,7 +550,9 @@ mod tests {
             .unwrap()
             .with_index(0x1122, 0x33);
         {
-            let builder = builder.clone().upload_expedited_response(&[0x44, 0x55, 0x66, 0x77]);
+            let builder = builder
+                .clone()
+                .upload_expedited_response(&[0x44, 0x55, 0x66, 0x77]);
             let expected: CANFrame = builder.build().into();
             assert_eq!(
                 expected.data(),
@@ -555,7 +562,9 @@ mod tests {
             assert_eq!(expected.is_rtr(), false);
         }
         {
-            let builder = builder.clone().upload_expedited_response(&[0x44, 0x55, 0x66]);
+            let builder = builder
+                .clone()
+                .upload_expedited_response(&[0x44, 0x55, 0x66]);
             let expected: CANFrame = builder.build().into();
             assert_eq!(
                 expected.data(),
@@ -659,7 +668,8 @@ mod tests {
     fn builder_segmented_upload_request() {
         let mut builder = CanOpenFrameBuilder::sdo_request(1)
             .unwrap()
-            .without_index().upload_request();
+            .without_index()
+            .upload_request();
         let expected: CANFrame = builder.build().into();
         assert_eq!(
             expected.data(),
@@ -679,18 +689,19 @@ mod tests {
         assert_eq!(expected.is_rtr(), false);
     }
 
-
     #[test]
     fn builder_segmented_upload_response() {
         let mut builder = CanOpenFrameBuilder::sdo_request(1)
             .unwrap()
-            .without_index().upload_response(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
+            .without_index()
+            .upload_response(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
         let expected: CANFrame = builder.build().into();
         assert_eq!(
             expected.data(),
             [0b0000_0000, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
         );
-        let mut builder = builder.upload_response(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]);
+        let mut builder =
+            builder.upload_response(&[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09]);
         let expected: CANFrame = builder.build().into();
         assert_eq!(
             expected.data(),

@@ -37,7 +37,7 @@ Frame module
 
 - segmented tests for parsing !!!
 - test it test segmented download
-- adjust server command specifier
+- clarify segmented download protocol (client and server command specifier at frames without index  )
 - Refactor payload  with index . data as [u8, 4]
 
 - no std varaint base on *embedded-can* hal api
@@ -52,9 +52,9 @@ Frame module
 - in sdo client and server as loopback device with bdd test
 
 ```
-612.40.05.20.01.00.00.00.00 Initiate Download Object 2005 sub object 1. ccs: 0b010.0.0000: 010 -> initiate an upload
+612.40.05.20.01.00.00.00.00 Upload request Object 2005 sub object 1. ccs: 0b010.0.0000: 010 -> initiate an upload
 
-592.41.05.20.01.1A.00.00.00 Initiate resp: Fine. It's 26 bytes long ccs: 41 -> 1 data size is set and segmented so size is in data field.
+592.41.05.20.01.1A.00.00.00 It is segmented: Fine. It's 26 bytes long ccs: 41 -> 1 data size is set and segmented so size is in data field.
 
 612.60.00.00.00.00.00.00.00  Upload segment req, Toggle = 0
 592.00.54.69.6E.79.20.4E.6F  Upload segment resp, Toggle = 0

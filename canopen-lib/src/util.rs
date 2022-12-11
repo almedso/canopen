@@ -1,8 +1,6 @@
+use crate::CanOpenError;
 use parse_int::parse;
 use regex::Regex;
-use crate::CanOpenError;
-
-
 
 use std::ops::RangeInclusive;
 
@@ -192,10 +190,9 @@ impl TypeVariant {
                 buf[3] = bytes[3];
                 &buf[0..4]
             }
-            _ => &buf[0..0]
+            _ => &buf[0..0],
         }
     }
-
 }
 
 pub trait Split {
@@ -353,40 +350,56 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_into_little_endian_buffer() {
         let mut buf = [0_u8; 20];
 
         let sut = TypeVariant::I32(-1);
-        assert_eq!( &[0xff, 0xff, 0xff, 0xff], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(
+            &[0xff, 0xff, 0xff, 0xff],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
 
         let sut = TypeVariant::U32(0x01020304);
-        assert_eq!( &[0x04, 0x03, 0x02, 0x01], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(
+            &[0x04, 0x03, 0x02, 0x01],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
 
         let sut = TypeVariant::U16(0x0102);
-        assert_eq!( &[0x02, 0x01], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(&[0x02, 0x01], sut.to_little_endian_buffer(buf.as_mut()));
 
         let sut = TypeVariant::I16(-256);
-        assert_eq!( &[0x00, 0xff], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(&[0x00, 0xff], sut.to_little_endian_buffer(buf.as_mut()));
 
         let sut = TypeVariant::U8(0x01);
-        assert_eq!( &[0x01], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(&[0x01], sut.to_little_endian_buffer(buf.as_mut()));
 
         let sut = TypeVariant::I8(-1);
-        assert_eq!( &[0xff], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(&[0xff], sut.to_little_endian_buffer(buf.as_mut()));
 
         let sut = TypeVariant::F32(1.0e0);
-        assert_eq!( &[0x0, 0x0, 0x80, 0x3f], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(
+            &[0x0, 0x0, 0x80, 0x3f],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
 
         let sut = TypeVariant::F32(1.0e1);
-        assert_eq!( &[0x0, 0x0, 0x20, 0x41], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(
+            &[0x0, 0x0, 0x20, 0x41],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
 
         let sut = TypeVariant::F32(1.0e2);
-        assert_eq!( &[0x0, 0x0, 0xc8, 0x42], sut.to_little_endian_buffer(buf.as_mut()));
+        assert_eq!(
+            &[0x0, 0x0, 0xc8, 0x42],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
 
         let sut = TypeVariant::F32(2.0e2);
-        assert_eq!( &[0x0, 0x0, 0x48, 0x43], sut.to_little_endian_buffer(buf.as_mut()));
-
+        assert_eq!(
+            &[0x0, 0x0, 0x48, 0x43],
+            sut.to_little_endian_buffer(buf.as_mut())
+        );
     }
 }

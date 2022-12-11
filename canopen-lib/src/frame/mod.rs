@@ -86,7 +86,6 @@ impl std::fmt::Display for FrameType {
     }
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnspecificPayload {
     pub length: usize,
@@ -331,7 +330,7 @@ mod tests {
         assert_eq!(false, can_open_frame.is_rtr);
         assert_eq!(
             Payload::SdoWithIndex(WithIndexPayload {
-                cs: CommandSpecifier::Ccs(ClientCommandSpecifier::InitiateDownload),
+                cs: CommandSpecifier::Ccs(ClientCommandSpecifier::Download),
                 size: CommandDataSize::OneByte,
                 expedited_flag: true,
                 index: 0x0201,
