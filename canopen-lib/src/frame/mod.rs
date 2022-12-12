@@ -39,7 +39,6 @@ pub use sdo::*;
 use core::convert::TryFrom;
 use num_enum::TryFromPrimitive;
 
-use enum_display_derive::*;
 use std::fmt::Display;
 use tokio_socketcan::CANFrame;
 

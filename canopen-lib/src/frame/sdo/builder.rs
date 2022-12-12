@@ -320,6 +320,11 @@ impl WithoutIndexFrameBuilder {
         }
     }
 
+    pub fn toggle(mut self, toggle: bool) -> Self {
+        self.toggle = !toggle;
+        self
+    }
+
     pub fn upload_request(mut self) -> Self {
         self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::UploadSegment);
         self.length_of_empty_bytes = Some(0);

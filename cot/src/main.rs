@@ -16,7 +16,6 @@ use std::time::Instant;
 
 use col::Split;
 
-
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
@@ -415,10 +414,16 @@ fn main() {
             }) => {
                 info!("Read Object Directory {}@{},{}", node, index, subindex);
                 let mut sdo_client = SdoClient::new(*node, can_socket);
-                let mut data = [0_u8; 4];
+                let mut data = [0_u8; 80];
                 match sdo_client.read_object(*index, *subindex, &mut data).await {
                     Ok(len) => {
-                        println!("Object {:x}@{:x},{:x} value {:?}", *node, *index, *subindex,  &data[0..len]);
+                        println!(
+                            "Object {:x}@{:x},{:x} value {:?}",
+                            *node,
+                            *index,
+                            *subindex,
+                            &data[0..len]
+                        );
                     }
                     Err(error) => {
                         println!("Error {}", error);
@@ -457,11 +462,13 @@ fn main() {
                         data[0] = *value as u8;
                         len = 1;
                     }
-                    _ =>  {}
+                    _ => {}
                 }
-                debug!(
-                    "Raw Buffer: {:?}",&data[0..len]);
-                match sdo_client.write_object(*index, *subindex, &data[0..len]).await {
+                debug!("Raw Buffer: {:?}", &data[0..len]);
+                match sdo_client
+                    .write_object(*index, *subindex, &data[0..len])
+                    .await
+                {
                     Ok(()) => {
                         println!("Success");
                     }

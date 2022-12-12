@@ -2,7 +2,8 @@
 //!
 use crate::extract_length;
 use crate::CanOpenFrameBuilder;
-use crate::{CANOpenFrame, FrameType, Payload};
+use crate::CommandSpecifier;
+use crate::{CANOpenFrame, FrameType, Payload, SDOAbortCode};
 
 use super::CanOpenError;
 use core::time::Duration;
@@ -90,6 +91,36 @@ impl SdoClient {
         subindex: u8,
         data: &mut [u8],
     ) -> Result<usize, CanOpenError> {
+        let mut len = self.read_indexed(index, subindex, data).await?;
+        if len > 4 {
+            debug!("Read segmented {} bytes", len);
+            let mut bytes_already_read = 0_usize;
+            let data_buffer_len = data.len();
+            let mut toggle = false;
+            while bytes_already_read < len {
+                debug!("Bytes already read: {}", bytes_already_read);
+                bytes_already_read += self
+                    .read_segment(
+                        index,
+                        subindex,
+                        toggle,
+                        &mut data[bytes_already_read..data_buffer_len],
+                    )
+                    .await?;
+                toggle = !toggle;
+            }
+            debug!("Bytes totally read: {}", bytes_already_read);
+        }
+        Ok(len)
+    }
+
+    pub async fn read_indexed(
+        &mut self,
+        index: u16,
+        subindex: u8,
+        data: &mut [u8],
+    ) -> Result<usize, CanOpenError> {
+        debug!("Send upload request");
         let worker = async {
             let builder = CanOpenFrameBuilder::sdo_request(self.node_id)
                 .unwrap()
@@ -102,24 +133,39 @@ impl SdoClient {
                 .await
                 .map_err(|_| -> CanOpenError { CanOpenError::SocketWriteError })?;
 
-            // wait for the result
+            debug!("Await upload response");
             let mut len: usize = 0;
             while let Some(Ok(frame)) = self.can_socket.next().await {
                 let frame = CANOpenFrame::try_from(frame)?;
                 if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoTx {
                     if let Payload::SdoWithIndex(payload) = frame.payload {
                         if payload.index == index && payload.subindex == subindex {
-                            len = extract_length(payload.size);
-                            for (i, item) in data.iter_mut().enumerate() {
-                                if i < len {
-                                    *item = (payload.data >> (8 * i) & 0xff) as u8;
+                            if payload.cs
+                                == CommandSpecifier::Scs(crate::ServerCommandSpecifier::Abort)
+                            {
+                                return Err(CanOpenError::SdoAbortCode {
+                                    abort_code: SDOAbortCode::from(payload.data),
+                                });
+                            }
+                            if payload.expedited_flag {
+                                // Expedited response
+                                len = extract_length(payload.size);
+                                for (i, item) in data.iter_mut().enumerate() {
+                                    if i < len {
+                                        *item = (payload.data >> (8 * i) & 0xff) as u8;
+                                    }
+                                }
+                            } else {
+                                // Data bigger than 4 byte -> segmented response is required
+                                len = payload.data as usize;
+                                if len > data.len() {
+                                    return Err(CanOpenError::StringIsTooLong {
+                                        max_length: data.len(),
+                                        given_length: len,
+                                    });
                                 }
                             }
-                            // for i in 0..data.len() {
-                            //     if i < len {
-                            //         data[i] = (payload.data >> (8 * i) & 0xff) as u8;
-                            //     }
-                            // }
+
                             break;
                         }
                     }
@@ -137,7 +183,83 @@ impl SdoClient {
 
         select! {
             worker_result = worker => result = worker_result,
-            () = timeout =>  result = Err(CanOpenError::SdoProtocolTimedOut),
+            () = timeout =>  {
+                debug!("Timeout reached");
+                result = Err(CanOpenError::SdoProtocolTimedOut);
+            }
+        }
+        result
+    }
+
+    async fn read_segment(
+        &mut self,
+        index: u16, // only to maintain the session and potentially catch SDO Abort
+        subindex: u8,
+        toggle: bool,
+        data: &mut [u8],
+    ) -> Result<usize, CanOpenError> {
+        debug!("Send segment upload request");
+        let worker = async {
+            let mut builder = CanOpenFrameBuilder::sdo_request(self.node_id)
+                .unwrap()
+                .without_index()
+                .upload_request()
+                .toggle(toggle);
+            let frame = builder.build().into();
+            self.can_socket
+                .write_frame(frame)
+                .map_err(|_| -> CanOpenError { CanOpenError::SocketInstanciatingError })?
+                .await
+                .map_err(|_| -> CanOpenError { CanOpenError::SocketWriteError })?;
+
+            debug!("Await segment upload reponse");
+            let mut len: usize = 0;
+            while let Some(Ok(frame)) = self.can_socket.next().await {
+                let frame = CANOpenFrame::try_from(frame)?;
+                if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoTx {
+                    if let Payload::SdoWithIndex(payload) = frame.payload {
+                        if payload.index == index && payload.subindex == subindex {
+                            if payload.cs
+                                == CommandSpecifier::Scs(crate::ServerCommandSpecifier::Abort)
+                            {
+                                return Err(CanOpenError::SdoAbortCode {
+                                    abort_code: SDOAbortCode::from(payload.data),
+                                });
+                            }
+                            break;
+                        }
+                    } else if let Payload::SdoWithoutIndex(payload) = frame.payload {
+                        // copy the data over
+                        len = 7_usize
+                            - match payload.length_of_empty_bytes {
+                                Some(x) => x as usize,
+                                None => 0_usize,
+                            };
+                        debug!("Segment extract {} bytes", len);
+                        for i in 0..len {
+                            data[i] = payload.data[i];
+                        }
+                        break;
+                    }
+                }
+            }
+
+            Ok(len)
+        }
+        .fuse();
+
+        let timeout = client_server_communication_timeout().fuse();
+
+        pin_mut!(worker, timeout);
+
+        let result: Result<usize, CanOpenError>;
+
+        select! {
+            worker_result = worker => result = worker_result,
+            () = timeout =>  {
+                debug!("Timeout reached");
+                result = Err(CanOpenError::SdoProtocolTimedOut);
+            }
         }
         result
     }
@@ -228,7 +350,7 @@ impl SdoClient {
 }
 
 async fn client_server_communication_timeout() {
-    const SDO_COMMUNICATION_TIMEOUT_IN_MS: u64 = 200;
+    const SDO_COMMUNICATION_TIMEOUT_IN_MS: u64 = 500;
     debug!(
         "Set response timeout to {} milliseconds",
         SDO_COMMUNICATION_TIMEOUT_IN_MS

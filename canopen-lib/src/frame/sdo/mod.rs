@@ -46,7 +46,7 @@ pub type SdoPayloadData = [u8; 8];
 /// /// Frame type is SdoRx (x600 + node)
 #[derive(IntoPrimitive)]
 #[repr(u8)]
-#[derive(Display, Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ClientCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
     DownloadSegment = 0b_000_00000,
@@ -87,11 +87,27 @@ impl From<u8> for ClientCommandSpecifier {
     }
 }
 
+impl Display for ClientCommandSpecifier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ClientCommandSpecifier::DownloadSegment => write!(f, "DowSg")?,
+            ClientCommandSpecifier::Download => write!(f, "Downl")?,
+            ClientCommandSpecifier::UploadSegment => write!(f, "UplSg")?,
+            ClientCommandSpecifier::Upload => write!(f, "Uploa")?,
+            ClientCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
+            ClientCommandSpecifier::BlockDownload => write!(f, "BkDow")?,
+            ClientCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
+            ClientCommandSpecifier::Unspecified => write!(f, "xxxxx")?,
+        }
+        Ok(())
+    }
+}
+
 /// Server command specifier (scs)
 /// Frame type is SdoTx (x580 + node)
 #[derive(IntoPrimitive)]
 #[repr(u8)]
-#[derive(Display, Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ServerCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
     UploadSegment = 0b_000_00000,
@@ -133,6 +149,23 @@ impl From<u8> for ServerCommandSpecifier {
             0b_110_00000 => ServerCommandSpecifier::BlockDownload,
             _ => ServerCommandSpecifier::Unspecified,
         }
+    }
+}
+
+impl Display for ServerCommandSpecifier {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ServerCommandSpecifier::DownloadSegment => write!(f, "DowSg")?,
+            ServerCommandSpecifier::Download => write!(f, "Downl")?,
+            ServerCommandSpecifier::UploadSegment => write!(f, "UplSg")?,
+            ServerCommandSpecifier::Upload => write!(f, "Uploa")?,
+            ServerCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
+            ServerCommandSpecifier::BlockDownload => write!(f, "BkDow")?,
+            ServerCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
+            ServerCommandSpecifier::Abort => write!(f, "Abort")?,
+            ServerCommandSpecifier::Unspecified => write!(f, "xxxxx")?,
+        }
+        Ok(())
     }
 }
 
@@ -439,9 +472,7 @@ impl WithIndexPayload {
         match command_specifier {
             ServerCommandSpecifier::Abort
             | ServerCommandSpecifier::Upload
-            | ServerCommandSpecifier::UploadSegment
-            | ServerCommandSpecifier::Download
-            | ServerCommandSpecifier::DownloadSegment => {
+            | ServerCommandSpecifier::Download => {
                 Ok(WithIndexPayload {
                     cs: CommandSpecifier::Scs(command_specifier),
                     size: data[0].into(),
@@ -462,27 +493,28 @@ impl WithIndexPayload {
     pub fn parse_as_client_payload(payload: SdoPayloadData) -> Result<Self, CanOpenError> {
         let command_specifier = ClientCommandSpecifier::from(payload[0]);
         match command_specifier {
-            ClientCommandSpecifier::Download
-            | ClientCommandSpecifier::Upload
-            | ClientCommandSpecifier::UploadSegment => Ok(WithIndexPayload {
-                cs: CommandSpecifier::Ccs(command_specifier),
-                size: CommandDataSize::from(payload[0]),
-                #[allow(clippy::unusual_byte_groupings)]
-                expedited_flag: ((payload[0] & 0b0000_00_1_0) == 0b0000_00_1_0),
-                index: payload[1] as u16 + ((payload[2] as u16) << 8),
-                subindex: payload[3],
+            ClientCommandSpecifier::Download | ClientCommandSpecifier::Upload => {
+                Ok(WithIndexPayload {
+                    cs: CommandSpecifier::Ccs(command_specifier),
+                    size: CommandDataSize::from(payload[0]),
+                    #[allow(clippy::unusual_byte_groupings)]
+                    expedited_flag: ((payload[0] & 0b0000_00_1_0) == 0b0000_00_1_0),
+                    index: payload[1] as u16 + ((payload[2] as u16) << 8),
+                    subindex: payload[3],
 
-                data: payload[4] as u32
-                    + ((payload[5] as u32) << 8)
-                    + ((payload[6] as u32) << 16)
-                    + ((payload[7] as u32) << 24),
-            }),
+                    data: payload[4] as u32
+                        + ((payload[5] as u32) << 8)
+                        + ((payload[6] as u32) << 16)
+                        + ((payload[7] as u32) << 24),
+                })
+            }
             ClientCommandSpecifier::BlockDownload | ClientCommandSpecifier::BlockUpload => {
                 Err(CanOpenError::SdoPayloadNotImplementedYet)
             }
             ClientCommandSpecifier::DownloadSegment | ClientCommandSpecifier::Unspecified => {
                 Err(CanOpenError::SdoPayloadParseError)
             }
+            _ => Err(CanOpenError::SdoPayloadParseError),
         }
     }
 }
@@ -523,7 +555,7 @@ impl std::fmt::Display for WithIndexPayload {
         if self.cs == CommandSpecifier::Scs(ServerCommandSpecifier::Abort) {
             write!(
                 f,
-                "{} - {:#04x},{:#02x} {}\t",
+                "{}     {:#04x},{:#02x} - {}\t",
                 self.cs,
                 self.index,
                 self.subindex,
@@ -532,8 +564,19 @@ impl std::fmt::Display for WithIndexPayload {
         } else {
             write!(
                 f,
-                "{} - {:#04x},{:#02x} [{:#x}]\t",
-                self.cs, self.index, self.subindex, self.data
+                "{}.{}.{} {:#04x},{:#02x} [{:#x}]\t",
+                self.cs,
+                if self.expedited_flag { 'e' } else { '_' },
+                match self.size {
+                    CommandDataSize::FourBytes => '4',
+                    CommandDataSize::ThreeBytes => '3',
+                    CommandDataSize::TwoBytes => '2',
+                    CommandDataSize::OneByte => '1',
+                    CommandDataSize::NotSet => '_',
+                },
+                self.index,
+                self.subindex,
+                self.data
             )?;
         }
         Ok(())
@@ -544,19 +587,21 @@ impl WithoutIndexPayload {
     pub fn parse_as_server_payload(payload: SdoPayloadData) -> Result<Self, CanOpenError> {
         let server_command_specifier = ServerCommandSpecifier::from(payload[0]);
         match server_command_specifier {
-            ServerCommandSpecifier::Upload => Ok(WithoutIndexPayload {
-                cs: CommandSpecifier::Scs(server_command_specifier),
-                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
-                    payload[0],
-                ),
-                #[allow(clippy::unusual_byte_groupings)]
-                toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
+            ServerCommandSpecifier::DownloadSegment | ServerCommandSpecifier::UploadSegment => {
+                Ok(WithoutIndexPayload {
+                    cs: CommandSpecifier::Scs(server_command_specifier),
+                    length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
+                        payload[0],
+                    ),
+                    #[allow(clippy::unusual_byte_groupings)]
+                    toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
 
-                data: [
-                    payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
-                    payload[7],
-                ],
-            }),
+                    data: [
+                        payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+                        payload[7],
+                    ],
+                })
+            }
             _ => Err(CanOpenError::SdoPayloadParseError),
         }
     }
@@ -564,19 +609,21 @@ impl WithoutIndexPayload {
     pub fn parse_as_client_payload(payload: SdoPayloadData) -> Result<Self, CanOpenError> {
         let client_command_specifier = ClientCommandSpecifier::from(payload[0]);
         match client_command_specifier {
-            ClientCommandSpecifier::UploadSegment => Ok(WithoutIndexPayload {
-                cs: CommandSpecifier::Ccs(client_command_specifier),
-                length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
-                    payload[0],
-                ),
-                #[allow(clippy::unusual_byte_groupings)]
-                toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
+            ClientCommandSpecifier::DownloadSegment | ClientCommandSpecifier::UploadSegment => {
+                Ok(WithoutIndexPayload {
+                    cs: CommandSpecifier::Ccs(client_command_specifier),
+                    length_of_empty_bytes: WithoutIndexPayload::get_length_from_command_byte(
+                        payload[0],
+                    ),
+                    #[allow(clippy::unusual_byte_groupings)]
+                    toggle: ((payload[0] & 0b000_1_0000) == 0b000_1_0000),
 
-                data: [
-                    payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
-                    payload[7],
-                ],
-            }),
+                    data: [
+                        payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
+                        payload[7],
+                    ],
+                })
+            }
             _ => Err(CanOpenError::SdoPayloadParseError),
         }
     }
@@ -627,11 +674,11 @@ impl std::fmt::Display for WithoutIndexPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(
             f,
-            "{} - toggle: {} size: {} data: {:?}\t",
+            "{}.{}.{} {:?}\t",
             self.cs,
-            if self.toggle { "set" } else { "clear" },
+            if self.toggle { "t" } else { "_" },
             match self.length_of_empty_bytes {
-                None => "No set".to_owned(),
+                None => "_".to_owned(),
                 Some(s) => s.to_string(),
             },
             self.data,
