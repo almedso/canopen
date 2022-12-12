@@ -26,7 +26,7 @@ pub enum CanOpenError {
     InvalidNumber { invalid_number: String },
     #[error("Data length should not exceed 8 bytes ({length} > 8)")]
     InvalidDataLength { length: usize },
-    #[error("Invalid number type ({number_type}")]
+    #[error("Invalid number type ({number_type})")]
     InvalidNumberType { number_type: String },
     #[error("Frame builder error")]
     BuilderError,
@@ -47,4 +47,6 @@ pub enum CanOpenError {
         max_length: usize,
         given_length: usize,
     },
+    #[error("Cannot be formatted as a string")]
+    Formatting,
 }

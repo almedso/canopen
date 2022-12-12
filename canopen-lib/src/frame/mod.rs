@@ -135,7 +135,7 @@ impl std::fmt::Display for CANOpenFrame {
 
         match self._frame_type {
             FrameType::SdoTx | FrameType::SdoRx => {
-                write!(f, "0x{:02X} \t", self._node_id)?;
+                write!(f, "{:03X} \t", self._node_id)?;
             }
             FrameType::Tpdo1
             | FrameType::Tpdo2
@@ -145,10 +145,10 @@ impl std::fmt::Display for CANOpenFrame {
             | FrameType::Rpdo2
             | FrameType::Rpdo3
             | FrameType::Rpdo4 => {
-                write!(f, "0x{:02X} \t", self.cob_id())?;
+                write!(f, "{:03X} \t", self.cob_id())?;
             }
             _ => {
-                write!(f, "0x{:02X} \t", self._node_id)?;
+                write!(f, "{:03X} \t", self._node_id)?;
             }
         }
         write!(f, "{}", self.payload)?;

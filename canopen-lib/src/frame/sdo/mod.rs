@@ -517,11 +517,8 @@ impl WithIndexPayload {
             _ => Err(CanOpenError::SdoPayloadParseError),
         }
     }
-}
 
-#[allow(clippy::from_over_into)]
-impl Into<SdoPayloadData> for WithIndexPayload {
-    fn into(self) -> SdoPayloadData {
+    fn command_byte(&self) -> u8 {
         let expedited_bit: u8 = if self.expedited_flag {
             #[allow(clippy::unusual_byte_groupings)]
             0b000000_1_0
@@ -529,12 +526,19 @@ impl Into<SdoPayloadData> for WithIndexPayload {
             #[allow(clippy::unusual_byte_groupings)]
             0b000000_0_0
         };
-        let command_specifier: u8 = self.size.into();
-        let command_data_size: u8 = self.cs.into();
+        let command_specifier: u8 = self.size.clone().into();
+        let command_data_size: u8 = self.cs.clone().into();
+        command_specifier + command_data_size + expedited_bit
+    }
 
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<SdoPayloadData> for WithIndexPayload {
+    fn into(self) -> SdoPayloadData {
         let mut payload: SdoPayloadData = [0_u8; 8];
         // command byte
-        payload[0] = command_specifier + command_data_size + expedited_bit;
+        payload[0] = self.command_byte();
         // index (little endian)
         payload[1] = self.index.lo();
         payload[2] = self.index.hi();
@@ -555,7 +559,7 @@ impl std::fmt::Display for WithIndexPayload {
         if self.cs == CommandSpecifier::Scs(ServerCommandSpecifier::Abort) {
             write!(
                 f,
-                "{}     {:#04x},{:#02x} - {}\t",
+                "{}    (80) {:04x},{:02x} - {}\t",
                 self.cs,
                 self.index,
                 self.subindex,
@@ -564,7 +568,7 @@ impl std::fmt::Display for WithIndexPayload {
         } else {
             write!(
                 f,
-                "{}.{}.{} {:#04x},{:#02x} [{:#x}]\t",
+                "{}.{}.{}({:02x}) {:04x},{:02x} [{:#x}]\t",
                 self.cs,
                 if self.expedited_flag { 'e' } else { '_' },
                 match self.size {
@@ -574,6 +578,7 @@ impl std::fmt::Display for WithIndexPayload {
                     CommandDataSize::OneByte => '1',
                     CommandDataSize::NotSet => '_',
                 },
+                self.command_byte(),
                 self.index,
                 self.subindex,
                 self.data
@@ -635,11 +640,8 @@ impl WithoutIndexPayload {
             Some((command_byte & 0b0000_1110) >> 1)
         }
     }
-}
 
-#[allow(clippy::from_over_into)]
-impl Into<SdoPayloadData> for WithoutIndexPayload {
-    fn into(self) -> SdoPayloadData {
+    fn command_byte(&self) -> u8 {
         let toggle_bit: u8 = if self.toggle {
             #[allow(clippy::unusual_byte_groupings)]
             0b000_1_0000
@@ -655,10 +657,16 @@ impl Into<SdoPayloadData> for WithoutIndexPayload {
                 ((x & 0b111_u8 ) << 1)
             }
         };
-        let command_specifier: u8 = self.cs.into();
+        let command_specifier: u8 = self.cs.clone().into();
+        command_specifier + toggle_bit + size
+    }
+}
 
+#[allow(clippy::from_over_into)]
+impl Into<SdoPayloadData> for WithoutIndexPayload {
+    fn into(self) -> SdoPayloadData {
         [
-            command_specifier + toggle_bit + size, // command byte
+            self.command_byte(),
             self.data[0],
             self.data[1],
             self.data[2],
@@ -672,15 +680,17 @@ impl Into<SdoPayloadData> for WithoutIndexPayload {
 
 impl std::fmt::Display for WithoutIndexPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        let command_byte =
         write!(
             f,
-            "{}.{}.{} {:?}\t",
+            "{}.{}.{}({:02x}) {:?}\t",
             self.cs,
             if self.toggle { "t" } else { "_" },
             match self.length_of_empty_bytes {
                 None => "_".to_owned(),
                 Some(s) => s.to_string(),
             },
+            self.command_byte(),
             self.data,
         )?;
         Ok(())

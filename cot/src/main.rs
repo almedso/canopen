@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use hex_slice::AsHex;
 use tokio_socketcan::CANSocket;
 
-use col::{self, sdo_client::SdoClient, CanOpenFrameBuilder};
+use col::{self, CanOpenError, sdo_client::SdoClient, CanOpenFrameBuilder, util::TypeVariant};
 use col::{nodeid_parser, pdo_cobid_parser};
 use parse_int::parse;
 
@@ -32,7 +32,7 @@ struct Cli {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
-enum ValueType {
+pub enum ValueType {
     None,
     U8,
     U16,
@@ -42,6 +42,7 @@ enum ValueType {
     I16,
     I32,
     F32,
+    STR,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum, Debug)]
@@ -52,6 +53,41 @@ enum FrameType {
     Emg,
     Err,
 }
+
+
+
+pub fn parse_buffer_as(value_type: ValueType, data: &[u8]) -> Result<TypeVariant, CanOpenError> {
+    match value_type {
+        ValueType::U8 => {
+            if data.len() == 1 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else { Ok(TypeVariant::U8(data[0])) }
+        },
+        ValueType::U16 => {
+            if data.len() == 2 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else {
+                Ok(TypeVariant::U16( data[0] as u16 + ((data[1] as u16) << 8 )))
+            }
+        }
+        ValueType::U32 => {
+            if data.len() == 2 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else {
+                let value =  data[0] as u32 + ((data[1] as u32) << 8)
+                    + ((data[2] as u32) << 16) + ((data[3] as u32) << 24);
+                Ok(TypeVariant::U32( value ))
+            }
+        }
+        ValueType::STR => {
+            match std::str::from_utf8(data) {
+                Ok(v) => Ok(TypeVariant::S(v.to_string())),
+                Err(e) => Err(CanOpenError::Formatting),
+            }
+        }
+
+        _ =>  Err(CanOpenError::InvalidNumberType { number_type: "None".to_string() })
+    }
+
+}
+
 
 #[derive(Subcommand)]
 enum Commands {
@@ -68,6 +104,10 @@ enum Commands {
         /// Object subindex - index 0x00 .. 0xff
         #[clap(default_value_t = 0x00, value_parser = parse::<u8>)]
         subindex: u8,
+
+        /// ValueType of the value
+        #[clap(short('p'), long("print-as"), arg_enum)]
+        value_type: ValueType,
     },
 
     /// Write object directory
@@ -236,77 +276,6 @@ enum Commands {
 //     }
 // }
 
-// async fn read_remote_object(can_socket: &mut CANSocket, node: u8, index: u16, subindex: u8) {
-//     const SDO_RECEIVE: u32 = 0x600;
-//     let frame: CANFrame = col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
-//         .unwrap()
-//         .into();
-//     match match can_socket.write_frame(frame) {
-//         Ok(x) => x,
-//         Err(error) => {
-//             error!("Error instancing write: {}", error);
-//             quit::with_code(1);
-//         }
-//     }
-//     .await
-//     {
-//         Ok(_) => (),
-//         Err(error) => {
-//             error!("Error writing: {}", error);
-//             quit::with_code(1);
-//         }
-//     }
-
-//     // read the response
-//     while let Some(Ok(frame)) = can_socket.next().await {
-//         match col::CANOpenFrame::try_from(frame) {
-//             Ok(frame) => {
-//                 if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SdoTx {
-//                     let sdo_response = SdoFrame::parse(&frame)
-//                         .map_err(|x| error!("{}", x))
-//                         .unwrap();
-//                     if sdo_response.index == index && sdo_response.subindex == subindex {
-//                         println!(
-//                             "CANOpen Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
-//                             index, subindex, node, sdo_response.data
-//                         );
-//                         break;
-//                     } else {
-//                         println!(
-//                             "CANOpen -- Object {:#06x},{:#04x} @ {:#04x}: {:#x}",
-//                             sdo_response.index, sdo_response.subindex, node, sdo_response.data
-//                         );
-//                         break;
-//                     }
-//                 }
-//             }
-//             Err(e) => {
-//                 error!("{}", e);
-//                 break;
-//             }
-//         }
-//     }
-// }
-
-// async fn read_remote_object_with_acknowledge_check(
-//     can_socket: &mut CANSocket,
-//     node: u8,
-//     index: u16,
-//     subindex: u8,
-// ) {
-//     let worker = read_remote_object(can_socket, node, index, subindex).fuse();
-//     let timeout = client_server_communication_timeout().fuse();
-
-//     pin_mut!(worker, timeout);
-
-//     select! {
-//         () = worker => info!("Remote object has been updated"),
-//         () = timeout => {
-//             error!("Error: Object directory reading not responded within 3 sec timeout");
-//             quit::with_code(1);
-//         }
-//     }
-// }
 
 async fn send_pdo(
     can_socket: &mut CANSocket,
@@ -408,6 +377,7 @@ fn main() {
 
         match &cli.command {
             Some(Commands::Rod {
+                value_type,
                 node,
                 index,
                 subindex,
@@ -417,13 +387,27 @@ fn main() {
                 let mut data = [0_u8; 80];
                 match sdo_client.read_object(*index, *subindex, &mut data).await {
                     Ok(len) => {
-                        println!(
-                            "Object {:x}@{:x},{:x} value {:?}",
-                            *node,
-                            *index,
-                            *subindex,
-                            &data[0..len]
-                        );
+                        match parse_buffer_as(*value_type, &data[0..len]) {
+                            Ok(variant) => {
+                                println!(
+                                    "Object {:x}@{:x},{:x} value {:?}",
+                                    *node,
+                                    *index,
+                                    *subindex,
+                                    variant
+                                );
+                            }
+                            Err(error) => {
+                                println!("Error result formatting {}", error);
+                                println!(
+                                    "Object {:x}@{:x},{:x} value {:?}",
+                                    *node,
+                                    *index,
+                                    *subindex,
+                                    &data[0..len]
+                                );
+                            }
+                        }
                     }
                     Err(error) => {
                         println!("Error {}", error);
