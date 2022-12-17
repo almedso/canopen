@@ -39,6 +39,8 @@ Frame module
 - test it test segmented download
 - clarify segmented download protocol (client and server command specifier at frames without index  )
 - Refactor payload  with index . data as [u8, 4]
+- sdo client extend to segmented download
+- sdo block download
 
 - no std varaint base on *embedded-can* hal api
   - [rust doc embedded-can](https://docs.rs/embedded-can/0.4.1/embedded_can/)

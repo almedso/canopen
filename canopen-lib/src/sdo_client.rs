@@ -310,6 +310,7 @@ impl SdoClient {
         data: &[u8],
     ) -> Result<(), CanOpenError> {
         let worker = async {
+            debug!("Send download request");
             let builder = CanOpenFrameBuilder::sdo_request(self.node_id)
                 .unwrap()
                 .with_index(index, subindex)
@@ -321,12 +322,20 @@ impl SdoClient {
                 .await
                 .map_err(|_| -> CanOpenError { CanOpenError::SocketWriteError })?;
 
-            // wait for the matching response
+            debug!("Await download response");
             while let Some(Ok(frame)) = self.can_socket.next().await {
                 let frame = CANOpenFrame::try_from(frame)?;
                 if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoTx {
                     if let Payload::SdoWithIndex(payload) = frame.payload {
                         if payload.index == index && payload.subindex == subindex {
+                            if payload.cs
+                                == CommandSpecifier::Scs(crate::ServerCommandSpecifier::Abort)
+                            {
+                                return Err(CanOpenError::SdoAbortCode {
+                                    abort_code: SDOAbortCode::from(payload.data),
+                                });
+                            }
+                            // we do not need to check the success, since it is no abort
                             break;
                         }
                     }
