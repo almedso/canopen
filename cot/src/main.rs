@@ -9,12 +9,10 @@ use hex_slice::AsHex;
 use tokio_socketcan::CANSocket;
 
 use col::{self, CanOpenError, sdo_client::SdoClient, CanOpenFrameBuilder, util::TypeVariant};
-use col::{nodeid_parser, pdo_cobid_parser};
+use col::{nodeid_parser, pdo_cobid_parser, number_parser};
 use parse_int::parse;
 
 use std::time::Instant;
-
-use col::Split;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -54,8 +52,6 @@ enum FrameType {
     Err,
 }
 
-
-
 pub fn parse_buffer_as(value_type: ValueType, data: &[u8]) -> Result<TypeVariant, CanOpenError> {
     match value_type {
         ValueType::U8 => {
@@ -69,17 +65,40 @@ pub fn parse_buffer_as(value_type: ValueType, data: &[u8]) -> Result<TypeVariant
             }
         }
         ValueType::U32 => {
+            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else {
+                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
+                Ok(TypeVariant::U32( u32::from_le_bytes(buf_of_four_bytes) ))
+            }
+        }
+        ValueType::I8 => {
+            if data.len() == 1 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else { Ok(TypeVariant::I8(data[0] as i8)) }
+        },
+        ValueType::I16 => {
             if data.len() == 2 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
             else {
-                let value =  data[0] as u32 + ((data[1] as u32) << 8)
-                    + ((data[2] as u32) << 16) + ((data[3] as u32) << 24);
-                Ok(TypeVariant::U32( value ))
+                Ok(TypeVariant::I16( (data[0] as u16 + ((data[1] as u16) << 8 )) as i16 ))
+            }
+        }
+        ValueType::I32 => {
+            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else {
+                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
+                Ok(TypeVariant::I32( i32::from_le_bytes(buf_of_four_bytes) ))
+            }
+        }
+        ValueType::F32 => {
+            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
+            else {
+                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
+                Ok(TypeVariant::F32(f32::from_le_bytes(buf_of_four_bytes)))
             }
         }
         ValueType::STR => {
             match std::str::from_utf8(data) {
                 Ok(v) => Ok(TypeVariant::S(v.to_string())),
-                Err(e) => Err(CanOpenError::Formatting),
+                Err(_e) => Err(CanOpenError::Formatting),
             }
         }
 
@@ -124,13 +143,9 @@ enum Commands {
         #[clap(value_parser = parse::<u8>)]
         subindex: u8,
 
-        /// ValueType of the value
-        #[clap(arg_enum)]
-        value_type: ValueType,
-
-        /// Object value - u32 as 0xabc_def01 or b0011_1001_0 or 123
-        #[clap(value_parser = parse::<u32>)]
-        value: u32,
+        /// Object value - with xxxxxxxx_yyy format and yyy the type u8, u16... f32 
+        #[clap(value_parser = number_parser)]
+        value: TypeVariant,
     },
 
     /// write PDO
@@ -143,13 +158,9 @@ enum Commands {
         #[clap(short, long)]
         remote: bool,
 
-        /// ValueType of the value
-        #[clap(arg_enum)]
-        value_type: ValueType,
-
-        /// PDO payload in hexadecimal with leading 0x maximum 8 bytes
-        #[clap(value_parser = parse::<u64>)]
-        value: u64,
+        /// Object value - with xxxxxxxx_yyy format and yyy the type u8, u16... f32
+        #[clap(value_parser = number_parser)]
+        value: TypeVariant,
     },
 
     /// Monitor traffic
@@ -170,178 +181,6 @@ enum Commands {
         #[clap(short, long)]
         timestamp: bool,
     },
-}
-
-// async fn client_server_communication_timeout() {
-//     debug!("Set response timeout to 3 seconds");
-//     let _timeout = Delay::new(Duration::from_secs(3)).await;
-// }
-
-// async fn write_remote_object(
-//     can_socket: &mut CANSocket,
-//     node: u8,
-//     index: u16,
-//     subindex: u8,
-//     value_type: ValueType,
-//     value: u32,
-// ) {
-//     const SDO_RECEIVE: u32 = 0x600;
-//     let frame: CANFrame = match value_type {
-//         ValueType::U8 => {
-//             col::download_1_byte_frame(node, SDO_RECEIVE, index, subindex, value as u8)
-//                 .unwrap()
-//                 .into()
-//         }
-//         ValueType::U16 => {
-//             let buffer: [u8; 2] = [
-//                 // little endian encoded
-//                 (value & 0xff_u32) as u8,
-//                 ((value >> 8) & 0xff_u32) as u8,
-//             ];
-//             col::download_2_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
-//                 .unwrap()
-//                 .into()
-//         }
-//         ValueType::U32 => {
-//             let buffer: [u8; 4] = [
-//                 // little endian encoded
-//                 (value & 0xff_u32) as u8,
-//                 ((value >> 8) & 0xff_u32) as u8,
-//                 ((value >> 16) & 0xff_u32) as u8,
-//                 ((value >> 24) & 0xff_u32) as u8,
-//             ];
-//             col::download_4_bytes_frame(node, SDO_RECEIVE, index, subindex, buffer)
-//                 .unwrap()
-//                 .into()
-//         }
-//         _ => {
-//             error!("{:?} is not supported for this SDO", value_type);
-//             col::upload_request_frame(node, SDO_RECEIVE, index, subindex)
-//                 .unwrap()
-//                 .into()
-//         }
-//     };
-
-//     match match can_socket.write_frame(frame) {
-//         Ok(x) => x,
-//         Err(error) => {
-//             error!("Error instancing write: {}", error);
-//             quit::with_code(1);
-//         }
-//     }
-//     .await
-//     {
-//         Ok(_) => (),
-//         Err(error) => {
-//             error!("Error writing: {}", error);
-//             quit::with_code(1);
-//         }
-//     }
-
-//     // read the response
-//     while let Some(Ok(frame)) = can_socket.next().await {
-//         match col::CANOpenFrame::try_from(frame) {
-//             Ok(frame) => {
-//                 if frame.node_id() == node && frame.frame_type() == col::frame::FrameType::SdoTx {
-//                     break;
-//                 }
-//             }
-//             Err(e) => {
-//                 error!("{}", e);
-//                 break;
-//             }
-//         }
-//     }
-// }
-
-// async fn write_remote_object_with_acknowledge_check(
-//     can_socket: &mut CANSocket,
-//     node: u8,
-//     index: u16,
-//     subindex: u8,
-//     value_type: ValueType,
-//     value: u32,
-// ) {
-//     let worker = write_remote_object(can_socket, node, index, subindex, value_type, value).fuse();
-//     let timeout = client_server_communication_timeout().fuse();
-
-//     pin_mut!(worker, timeout);
-
-//     select! {
-//         () = worker => info!("Remote object has been updated"),
-//         () = timeout => {
-//             error!("Error: Object directory writing not acknowledged within 3 sec timeout");
-//             quit::with_code(1);
-//         }
-//     }
-// }
-
-
-async fn send_pdo(
-    can_socket: &mut CANSocket,
-    cob_id: u32,
-    is_rtr: bool,
-    value_type: ValueType,
-    value: u64,
-) {
-    let buffer: [u8; 8];
-    let data: &[u8] = match value_type {
-        ValueType::None => &[],
-        ValueType::U8 => {
-            buffer = [value as u8, 0, 0, 0, 0, 0, 0, 0];
-            &buffer[0..=0]
-        }
-        ValueType::U16 => {
-            buffer = [value as u8, (value >> 8) as u8, 0, 0, 0, 0, 0, 0];
-            &buffer[0..=1]
-        }
-        ValueType::U32 => {
-            buffer = [
-                value as u8,
-                (value >> 8) as u8,
-                (value >> 16) as u8,
-                (value >> 24) as u8,
-                0,
-                0,
-                0,
-                0,
-            ];
-            &buffer[0..=3]
-        }
-        ValueType::U64 => {
-            buffer = [
-                value as u8,
-                (value >> 8) as u8,
-                (value >> 16) as u8,
-                (value >> 24) as u8,
-                (value >> 32) as u8,
-                (value >> 40) as u8,
-                (value >> 48) as u8,
-                (value >> 56) as u8,
-            ];
-            &buffer[0..=7]
-        }
-        _ => {
-            error!("Not supported type");
-            quit::with_code(1);
-        }
-    };
-    let builder = CanOpenFrameBuilder::default()
-        .set_rtr(is_rtr)
-        .pdo(cob_id)
-        .unwrap()
-        .payload(data)
-        .unwrap();
-    let frame = builder.build().into();
-    match can_socket.write_frame(frame) {
-        Ok(x) => x,
-        Err(error) => {
-            error!("Error instancing write: {}", error);
-            quit::with_code(1);
-        }
-    }
-    .await
-    .unwrap();
 }
 
 #[quit::main]
@@ -418,39 +257,19 @@ fn main() {
                 node,
                 index,
                 subindex,
-                value_type,
                 value,
             }) => {
                 info!(
-                    "Write Communication Object: {}@{},{} -> {}",
+                    "Write Communication Object: {}@{},{} -> {:?}",
                     node, index, subindex, value
                 );
 
                 let mut sdo_client = SdoClient::new(*node, can_socket);
-                let mut data = [0_u8; 4];
-                let mut len = 0_usize;
-                match value_type {
-                    ValueType::U32 => {
-                        data[0] = (*value).lo().lo();
-                        data[1] = (*value).lo().hi();
-                        data[2] = (*value).hi().lo();
-                        data[3] = (*value).hi().hi();
-                        len = 4;
-                    }
-                    ValueType::U16 => {
-                        data[0] = (*value as u16).lo();
-                        data[1] = (*value as u16).hi();
-                        len = 2;
-                    }
-                    ValueType::U8 => {
-                        data[0] = *value as u8;
-                        len = 1;
-                    }
-                    _ => {}
-                }
-                debug!("Raw Buffer: {:?}", &data[0..len]);
+                let mut buffer = [0_u8; 80];
+                let data = value.to_little_endian_buffer(&mut buffer);
+                debug!("Raw Buffer: {:?}", data);
                 match sdo_client
-                    .write_object(*index, *subindex, &data[0..len])
+                    .write_object(*index, *subindex, data)
                     .await
                 {
                     Ok(()) => {
@@ -465,14 +284,35 @@ fn main() {
             Some(Commands::Pdo {
                 cobid,
                 remote,
-                value_type,
                 value,
             }) => {
                 info!(
-                    "Inject PDO cobid 0x{:x} RFR {} Value: 0x{:x}",
-                    cobid, remote, value
+                    "Inject PDO cobid 0x{:x} RFR {} Value: {:?}",
+                    cobid, remote, value.clone()
                 );
-                send_pdo(&mut can_socket, *cobid, *remote, *value_type, *value).await;
+
+                let mut buffer = [0_u8; 8];
+                let data = value.to_little_endian_buffer(&mut buffer);
+                if data.len() > 8 {
+                        println!("Error: Value needs to be equal or less than 8 bytes");
+                        quit::with_code(1);
+                }
+                let builder = CanOpenFrameBuilder::default()
+                    .set_rtr(false)
+                    .pdo(*cobid)
+                    .unwrap()
+                    .payload(data)
+                    .unwrap();
+                let frame = builder.build().into();
+                match can_socket.write_frame(frame) {
+                    Ok(x) => x,
+                    Err(error) => {
+                        error!("Error instancing write: {}", error);
+                        quit::with_code(1);
+                    }
+                }
+                .await
+                .unwrap();
             }
             Some(Commands::Mon {
                 nodes,
@@ -574,7 +414,10 @@ fn main() {
                                     || nodes.contains(&frame.node_id()))
                             {
                                 if *timestamp {
-                                    print!("[{:?}] ", start_time.elapsed());
+                                   let elapsed = start_time.elapsed();
+                                    let seconds = elapsed.as_secs() % 1000;
+                                    let millis = elapsed.subsec_millis();
+                                    print!("{:03}.{:03}s - ", seconds, millis);
                                 }
                                 println!("{}", frame);
                             }

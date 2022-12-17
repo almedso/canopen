@@ -2,7 +2,6 @@
 
 ## TODO
 
-- missing formats for rod command
+- test all rod command formatting
 - test wod commands update to new format
-- remove old code
 - use helper format functions for pdo command and wod command

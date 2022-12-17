@@ -48,7 +48,7 @@ pub fn nodeid_parser(s: &str) -> Result<u8, String> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TypeVariant {
     U8(u8),
     U16(u16),
@@ -126,36 +126,36 @@ pub fn number_parser(s: &str) -> Result<TypeVariant, CanOpenError> {
 }
 
 impl TypeVariant {
-    pub fn to_little_endian_buffer(self, buf: &mut [u8]) -> &[u8] {
+    pub fn to_little_endian_buffer<'a>(&self, buf: &'a mut [u8]) -> &'a[u8] {
         match self {
             TypeVariant::U8(n) => {
                 if 1 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = n as u8;
+                buf[0] = *n as u8;
                 &buf[0..1]
             }
             TypeVariant::I8(n) => {
                 if 1 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = n as u8;
+                buf[0] = *n as u8;
                 &buf[0..1]
             }
             TypeVariant::U16(n) => {
                 if 2 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = n.lo();
-                buf[1] = n.hi();
+                buf[0] = (*n as u16).lo();
+                buf[1] = (*n as u16).hi();
                 &buf[0..2]
             }
             TypeVariant::I16(n) => {
                 if 2 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = (n as u16).lo();
-                buf[1] = (n as u16).hi();
+                buf[0] = (*n as u16).lo();
+                buf[1] = (*n as u16).hi();
                 &buf[0..2]
             }
 
@@ -163,20 +163,20 @@ impl TypeVariant {
                 if 4 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = (n as u32).lo().lo();
-                buf[1] = (n as u32).lo().hi();
-                buf[2] = (n as u32).hi().lo();
-                buf[3] = (n as u32).hi().hi();
+                buf[0] = (*n as u32).lo().lo();
+                buf[1] = (*n as u32).lo().hi();
+                buf[2] = (*n as u32).hi().lo();
+                buf[3] = (*n as u32).hi().hi();
                 &buf[0..4]
             }
             TypeVariant::I32(n) => {
                 if 4 > buf.len() {
                     panic!("Buffer to small");
                 }
-                buf[0] = (n as u32).lo().lo();
-                buf[1] = (n as u32).lo().hi();
-                buf[2] = (n as u32).hi().lo();
-                buf[3] = (n as u32).hi().hi();
+                buf[0] = (*n as u32).lo().lo();
+                buf[1] = (*n as u32).lo().hi();
+                buf[2] = (*n as u32).hi().lo();
+                buf[3] = (*n as u32).hi().hi();
                 &buf[0..4]
             }
             TypeVariant::F32(n) => {

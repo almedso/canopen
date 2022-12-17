@@ -91,7 +91,7 @@ impl SdoClient {
         subindex: u8,
         data: &mut [u8],
     ) -> Result<usize, CanOpenError> {
-        let mut len = self.read_indexed(index, subindex, data).await?;
+        let len = self.read_indexed(index, subindex, data).await?;
         if len > 4 {
             debug!("Read segmented {} bytes", len);
             let mut bytes_already_read = 0_usize;
