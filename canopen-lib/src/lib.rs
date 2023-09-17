@@ -8,6 +8,10 @@ pub use frame::*;
 
 pub mod sdo_client;
 pub use sdo_client::*;
+// pub mod sdo_server;
+// pub use sdo_server::*;
+pub mod object_dictionary;
+pub use object_dictionary::*;
 
 pub mod util;
 pub use util::*;
@@ -47,6 +51,8 @@ pub enum CanOpenError {
         max_length: usize,
         given_length: usize,
     },
+    #[error("Object at: {index}, {subindex} does not exist")]
+    ObjectDoesNotExist { index: u16, subindex: u8 },
     #[error("Cannot be formatted as a string")]
     Formatting,
 }

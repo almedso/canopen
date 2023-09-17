@@ -48,8 +48,8 @@ pub fn nodeid_parser(s: &str) -> Result<u8, String> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TypeVariant {
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TypeVariant<'a> {
     U8(u8),
     U16(u16),
     U32(u32),
@@ -57,7 +57,7 @@ pub enum TypeVariant {
     I32(i32),
     I16(i16),
     F32(f32),
-    S(String),
+    S(&'a str),
 }
 
 /// Parse a number into a byte representation
@@ -122,11 +122,11 @@ pub fn number_parser(s: &str) -> Result<TypeVariant, CanOpenError> {
             }
         }
     }
-    Ok(TypeVariant::S(String::from(s)))
+    Ok(TypeVariant::S(s))
 }
 
-impl TypeVariant {
-    pub fn to_little_endian_buffer<'a>(&self, buf: &'a mut [u8]) -> &'a[u8] {
+impl TypeVariant<'_> {
+    pub fn to_little_endian_buffer<'a>(&self, buf: &'a mut [u8]) -> &'a [u8] {
         match self {
             TypeVariant::U8(n) => {
                 if 1 > buf.len() {
@@ -193,8 +193,6 @@ impl TypeVariant {
             _ => &buf[0..0],
         }
     }
-
-
 }
 
 pub trait Split {
@@ -314,10 +312,7 @@ mod tests {
 
     #[test]
     fn test_number_parser_ok() {
-        assert_eq!(
-            TypeVariant::S(String::from("abc")),
-            number_parser("abc").unwrap()
-        );
+        assert_eq!(TypeVariant::S("abc"), number_parser("abc").unwrap());
         assert_eq!(TypeVariant::U8(1), number_parser("1_u8").unwrap());
         assert_eq!(TypeVariant::U16(1), number_parser("1_u16").unwrap());
         assert_eq!(
