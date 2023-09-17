@@ -46,8 +46,8 @@ Not necessarily in this sequence
 * more sdo z.B. multibyte
 * unit tests
 * refactor remove code duplications
-
-test mermaid
+* object dictionary size as compile time feature
+* test mermaid
 
 
 ## References
