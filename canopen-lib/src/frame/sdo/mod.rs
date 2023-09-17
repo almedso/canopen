@@ -530,7 +530,6 @@ impl WithIndexPayload {
         let command_data_size: u8 = self.cs.clone().into();
         command_specifier + command_data_size + expedited_bit
     }
-
 }
 
 #[allow(clippy::from_over_into)]
@@ -680,8 +679,7 @@ impl Into<SdoPayloadData> for WithoutIndexPayload {
 
 impl std::fmt::Display for WithoutIndexPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        let command_byte =
-        write!(
+        let command_byte = write!(
             f,
             "{}.{}.{}({:02x}) {:?}\t",
             self.cs,
