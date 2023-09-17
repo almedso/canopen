@@ -125,7 +125,7 @@ enum Commands {
         subindex: u8,
 
         /// ValueType of the value
-        #[clap(short('p'), long("print-as"), arg_enum)]
+        #[clap(short('p'), long("print-as"), arg_enum, default_value_t=ValueType::None)]
         value_type: ValueType,
     },
 
