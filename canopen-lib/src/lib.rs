@@ -55,4 +55,12 @@ pub enum CanOpenError {
     ObjectDoesNotExist { index: u16, subindex: u8 },
     #[error("Cannot be formatted as a string")]
     Formatting,
+    #[error("Cannot write to const storage")]
+    CannotWriteToConstStorage,
+    #[error("Writing to object is forbidden")]
+    WritingForbidden,
+    #[error("Reading from object is not possible")]
+    ReadAccessImpossible,
+    #[error("Sharded access to object failed")]
+    SharedOdAccessError,
 }

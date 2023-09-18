@@ -49,7 +49,7 @@ pub fn nodeid_parser(s: &str) -> Result<u8, String> {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum TypeVariant<'a> {
+pub enum ValueVariant<'a> {
     U8(u8),
     U16(u16),
     U32(u32),
@@ -66,7 +66,7 @@ pub enum TypeVariant<'a> {
 ///
 /// * `s` - The string to parse e.g. `123_u8, 0x44ff_u32, -128_i16, -1.34e-5_f32`
 ///         The type is added at the end if no valid type is set the string is taken as bytes
-pub fn number_parser(s: &str) -> Result<TypeVariant, CanOpenError> {
+pub fn number_parser(s: &str) -> Result<ValueVariant, CanOpenError> {
     let re = Regex::new(r"(.*)_(.{2,3})").unwrap();
     if re.is_match(s) {
         let caps = re.captures(s).unwrap();
@@ -77,44 +77,44 @@ pub fn number_parser(s: &str) -> Result<TypeVariant, CanOpenError> {
                 let u = parse::<u8>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::U8(u));
+                return Ok(ValueVariant::U8(u));
             }
             "u16" => {
                 let u = parse::<u16>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
 
-                return Ok(TypeVariant::U16(u));
+                return Ok(ValueVariant::U16(u));
             }
             "u32" => {
                 let u = parse::<u32>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::U32(u));
+                return Ok(ValueVariant::U32(u));
             }
             "i8" => {
                 let u = parse::<i8>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::I8(u));
+                return Ok(ValueVariant::I8(u));
             }
             "i16" => {
                 let u = parse::<i16>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::I16(u));
+                return Ok(ValueVariant::I16(u));
             }
             "i32" => {
                 let u = parse::<i32>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::I32(u));
+                return Ok(ValueVariant::I32(u));
             }
             "f32" => {
                 let u = parse::<f32>(number_value).map_err(|_| CanOpenError::InvalidNumber {
                     invalid_number: String::from(number_value),
                 })?;
-                return Ok(TypeVariant::F32(u));
+                return Ok(ValueVariant::F32(u));
             }
             x => {
                 let number_type = String::from(x);
@@ -122,27 +122,27 @@ pub fn number_parser(s: &str) -> Result<TypeVariant, CanOpenError> {
             }
         }
     }
-    Ok(TypeVariant::S(s))
+    Ok(ValueVariant::S(s))
 }
 
-impl TypeVariant<'_> {
+impl ValueVariant<'_> {
     pub fn to_little_endian_buffer<'a>(&self, buf: &'a mut [u8]) -> &'a [u8] {
         match self {
-            TypeVariant::U8(n) => {
+            ValueVariant::U8(n) => {
                 if 1 > buf.len() {
                     panic!("Buffer to small");
                 }
                 buf[0] = *n as u8;
                 &buf[0..1]
             }
-            TypeVariant::I8(n) => {
+            ValueVariant::I8(n) => {
                 if 1 > buf.len() {
                     panic!("Buffer to small");
                 }
                 buf[0] = *n as u8;
                 &buf[0..1]
             }
-            TypeVariant::U16(n) => {
+            ValueVariant::U16(n) => {
                 if 2 > buf.len() {
                     panic!("Buffer to small");
                 }
@@ -150,7 +150,7 @@ impl TypeVariant<'_> {
                 buf[1] = (*n as u16).hi();
                 &buf[0..2]
             }
-            TypeVariant::I16(n) => {
+            ValueVariant::I16(n) => {
                 if 2 > buf.len() {
                     panic!("Buffer to small");
                 }
@@ -159,7 +159,7 @@ impl TypeVariant<'_> {
                 &buf[0..2]
             }
 
-            TypeVariant::U32(n) => {
+            ValueVariant::U32(n) => {
                 if 4 > buf.len() {
                     panic!("Buffer to small");
                 }
@@ -169,7 +169,7 @@ impl TypeVariant<'_> {
                 buf[3] = (*n as u32).hi().hi();
                 &buf[0..4]
             }
-            TypeVariant::I32(n) => {
+            ValueVariant::I32(n) => {
                 if 4 > buf.len() {
                     panic!("Buffer to small");
                 }
@@ -179,7 +179,7 @@ impl TypeVariant<'_> {
                 buf[3] = (*n as u32).hi().hi();
                 &buf[0..4]
             }
-            TypeVariant::F32(n) => {
+            ValueVariant::F32(n) => {
                 if 4 > buf.len() {
                     panic!("Buffer to small");
                 }
@@ -286,6 +286,10 @@ impl Split for i64 {
     }
 }
 
+pub fn map_index(index: u16, subindex: u8) -> u32 {
+    ((index as u32) << 8) + (subindex as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,21 +316,21 @@ mod tests {
 
     #[test]
     fn test_number_parser_ok() {
-        assert_eq!(TypeVariant::S("abc"), number_parser("abc").unwrap());
-        assert_eq!(TypeVariant::U8(1), number_parser("1_u8").unwrap());
-        assert_eq!(TypeVariant::U16(1), number_parser("1_u16").unwrap());
+        assert_eq!(ValueVariant::S("abc"), number_parser("abc").unwrap());
+        assert_eq!(ValueVariant::U8(1), number_parser("1_u8").unwrap());
+        assert_eq!(ValueVariant::U16(1), number_parser("1_u16").unwrap());
         assert_eq!(
-            TypeVariant::U32(0x01020304),
+            ValueVariant::U32(0x01020304),
             number_parser("0x01020304_u32").unwrap()
         );
-        assert_eq!(TypeVariant::I8(-1), number_parser("-1_i8").unwrap());
-        assert_eq!(TypeVariant::I16(-1), number_parser("-1_i16").unwrap());
+        assert_eq!(ValueVariant::I8(-1), number_parser("-1_i8").unwrap());
+        assert_eq!(ValueVariant::I16(-1), number_parser("-1_i16").unwrap());
         assert_eq!(
-            TypeVariant::I32(-1020304),
+            ValueVariant::I32(-1020304),
             number_parser("-1020304_i32").unwrap()
         );
         assert_eq!(
-            TypeVariant::F32(-0.123e-2),
+            ValueVariant::F32(-0.123e-2),
             number_parser("-0.123e-2_f32").unwrap()
         );
     }
@@ -351,52 +355,59 @@ mod tests {
     fn test_into_little_endian_buffer() {
         let mut buf = [0_u8; 20];
 
-        let sut = TypeVariant::I32(-1);
+        let sut = ValueVariant::I32(-1);
         assert_eq!(
             &[0xff, 0xff, 0xff, 0xff],
             sut.to_little_endian_buffer(buf.as_mut())
         );
 
-        let sut = TypeVariant::U32(0x01020304);
+        let sut = ValueVariant::U32(0x01020304);
         assert_eq!(
             &[0x04, 0x03, 0x02, 0x01],
             sut.to_little_endian_buffer(buf.as_mut())
         );
 
-        let sut = TypeVariant::U16(0x0102);
+        let sut = ValueVariant::U16(0x0102);
         assert_eq!(&[0x02, 0x01], sut.to_little_endian_buffer(buf.as_mut()));
 
-        let sut = TypeVariant::I16(-256);
+        let sut = ValueVariant::I16(-256);
         assert_eq!(&[0x00, 0xff], sut.to_little_endian_buffer(buf.as_mut()));
 
-        let sut = TypeVariant::U8(0x01);
+        let sut = ValueVariant::U8(0x01);
         assert_eq!(&[0x01], sut.to_little_endian_buffer(buf.as_mut()));
 
-        let sut = TypeVariant::I8(-1);
+        let sut = ValueVariant::I8(-1);
         assert_eq!(&[0xff], sut.to_little_endian_buffer(buf.as_mut()));
 
-        let sut = TypeVariant::F32(1.0e0);
+        let sut = ValueVariant::F32(1.0e0);
         assert_eq!(
             &[0x0, 0x0, 0x80, 0x3f],
             sut.to_little_endian_buffer(buf.as_mut())
         );
 
-        let sut = TypeVariant::F32(1.0e1);
+        let sut = ValueVariant::F32(1.0e1);
         assert_eq!(
             &[0x0, 0x0, 0x20, 0x41],
             sut.to_little_endian_buffer(buf.as_mut())
         );
 
-        let sut = TypeVariant::F32(1.0e2);
+        let sut = ValueVariant::F32(1.0e2);
         assert_eq!(
             &[0x0, 0x0, 0xc8, 0x42],
             sut.to_little_endian_buffer(buf.as_mut())
         );
 
-        let sut = TypeVariant::F32(2.0e2);
+        let sut = ValueVariant::F32(2.0e2);
         assert_eq!(
             &[0x0, 0x0, 0x48, 0x43],
             sut.to_little_endian_buffer(buf.as_mut())
         );
+    }
+
+    #[test]
+    fn test_map_index() {
+        assert_eq!(0x00123456, map_index(0x1234, 0x56));
+        assert_eq!(0x00ffff00, map_index(0xffff, 0x00));
+        assert_eq!(0x000000ff, map_index(0x0000, 0xff));
     }
 }

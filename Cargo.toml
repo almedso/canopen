@@ -5,3 +5,6 @@ members = [
     "canopen-lib",
     "bdd",
 ]
+
+resolver = "2"
+

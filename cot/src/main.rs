@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use hex_slice::AsHex;
 use tokio_socketcan::CANSocket;
 
-use col::{self, CanOpenError, sdo_client::SdoClient, CanOpenFrameBuilder, util::TypeVariant};
-use col::{nodeid_parser, pdo_cobid_parser, number_parser};
+use col::{self, sdo_client::SdoClient, util::ValueVariant, CanOpenError, CanOpenFrameBuilder};
+use col::{nodeid_parser, number_parser, pdo_cobid_parser};
 use parse_int::parse;
 
 use std::time::Instant;
@@ -35,7 +35,6 @@ pub enum ValueType {
     U8,
     U16,
     U32,
-    U64,
     I8,
     I16,
     I32,
@@ -52,61 +51,92 @@ enum FrameType {
     Err,
 }
 
-pub fn parse_buffer_as(value_type: ValueType, data: &[u8]) -> Result<TypeVariant, CanOpenError> {
+pub fn parse_buffer_as(
+    value_type: ValueType,
+    data: &[u8],
+) -> Result<ValueVariant<'_>, CanOpenError> {
     match value_type {
         ValueType::U8 => {
-            if data.len() == 1 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else { Ok(TypeVariant::U8(data[0])) }
-        },
+            if data.len() == 1 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                Ok(ValueVariant::U8(data[0]))
+            }
+        }
         ValueType::U16 => {
-            if data.len() == 2 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else {
-                Ok(TypeVariant::U16( data[0] as u16 + ((data[1] as u16) << 8 )))
+            if data.len() == 2 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                Ok(ValueVariant::U16(data[0] as u16 + ((data[1] as u16) << 8)))
             }
         }
         ValueType::U32 => {
-            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else {
-                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
-                Ok(TypeVariant::U32( u32::from_le_bytes(buf_of_four_bytes) ))
+            if data.len() == 4 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                let buf_of_four_bytes = [data[0], data[1], data[2], data[3]];
+                Ok(ValueVariant::U32(u32::from_le_bytes(buf_of_four_bytes)))
             }
         }
         ValueType::I8 => {
-            if data.len() == 1 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else { Ok(TypeVariant::I8(data[0] as i8)) }
-        },
+            if data.len() == 1 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                Ok(ValueVariant::I8(data[0] as i8))
+            }
+        }
         ValueType::I16 => {
-            if data.len() == 2 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else {
-                Ok(TypeVariant::I16( (data[0] as u16 + ((data[1] as u16) << 8 )) as i16 ))
+            if data.len() == 2 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                Ok(ValueVariant::I16(
+                    (data[0] as u16 + ((data[1] as u16) << 8)) as i16,
+                ))
             }
         }
         ValueType::I32 => {
-            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else {
-                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
-                Ok(TypeVariant::I32( i32::from_le_bytes(buf_of_four_bytes) ))
+            if data.len() == 4 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                let buf_of_four_bytes = [data[0], data[1], data[2], data[3]];
+                Ok(ValueVariant::I32(i32::from_le_bytes(buf_of_four_bytes)))
             }
         }
         ValueType::F32 => {
-            if data.len() == 4 { Err(CanOpenError::InvalidNumberType { number_type: "u8".to_string() }) }
-            else {
-                let buf_of_four_bytes = [ data[0], data[1], data[2], data[3] ];
-                Ok(TypeVariant::F32(f32::from_le_bytes(buf_of_four_bytes)))
+            if data.len() == 4 {
+                Err(CanOpenError::InvalidNumberType {
+                    number_type: "u8".to_string(),
+                })
+            } else {
+                let buf_of_four_bytes = [data[0], data[1], data[2], data[3]];
+                Ok(ValueVariant::F32(f32::from_le_bytes(buf_of_four_bytes)))
             }
         }
         ValueType::STR => {
+            // copy transient data buffer into static buffer - is it a hacky solution?
             match std::str::from_utf8(data) {
-                Ok(v) => Ok(TypeVariant::S(v.to_string())),
+                Ok(v) => Ok(ValueVariant::S(v)),
                 Err(_e) => Err(CanOpenError::Formatting),
             }
         }
 
-        _ =>  Err(CanOpenError::InvalidNumberType { number_type: "None".to_string() })
+        _ => Err(CanOpenError::InvalidNumberType {
+            number_type: "None".to_string(),
+        }),
     }
-
 }
-
 
 #[derive(Subcommand)]
 enum Commands {
@@ -143,9 +173,12 @@ enum Commands {
         #[clap(value_parser = parse::<u8>)]
         subindex: u8,
 
-        /// Object value - with xxxxxxxx_yyy format and yyy the type u8, u16... f32 
-        #[clap(value_parser = number_parser)]
-        value: TypeVariant,
+        /// Object value - a string containing the e.g. a number
+        value: String,
+
+        /// ValueType of the value
+        #[clap(arg_enum, default_value_t=ValueType::STR)]
+        value_type: ValueType,
     },
 
     /// write PDO
@@ -158,9 +191,12 @@ enum Commands {
         #[clap(short, long)]
         remote: bool,
 
-        /// Object value - with xxxxxxxx_yyy format and yyy the type u8, u16... f32
-        #[clap(value_parser = number_parser)]
-        value: TypeVariant,
+        /// Object value - a string containing the e.g. a number
+        value: String,
+
+        /// ValueType of the value
+        #[clap(arg_enum, default_value_t=ValueType::STR)]
+        value_type: ValueType,
     },
 
     /// Monitor traffic
@@ -181,6 +217,17 @@ enum Commands {
         #[clap(short, long)]
         timestamp: bool,
     },
+}
+
+struct ArgumentError;
+
+fn convert<'a>(
+    value: &'a String,
+    value_type: ValueType,
+) -> Result<ValueVariant<'a>, ArgumentError> {
+    match value_type {
+        _ => Ok(ValueVariant::S(&value[..])),
+    }
 }
 
 #[quit::main]
@@ -225,29 +272,24 @@ fn main() {
                 let mut sdo_client = SdoClient::new(*node, can_socket);
                 let mut data = [0_u8; 80];
                 match sdo_client.read_object(*index, *subindex, &mut data).await {
-                    Ok(len) => {
-                        match parse_buffer_as(*value_type, &data[0..len]) {
-                            Ok(variant) => {
-                                println!(
-                                    "Object {:x}@{:x},{:x} value {:?}",
-                                    *node,
-                                    *index,
-                                    *subindex,
-                                    variant
-                                );
-                            }
-                            Err(error) => {
-                                println!("Error result formatting {}", error);
-                                println!(
-                                    "Object {:x}@{:x},{:x} value {:?}",
-                                    *node,
-                                    *index,
-                                    *subindex,
-                                    &data[0..len]
-                                );
-                            }
+                    Ok(len) => match parse_buffer_as(*value_type, &data[0..len]) {
+                        Ok(variant) => {
+                            println!(
+                                "Object {:x}@{:x},{:x} value {:?}",
+                                *node, *index, *subindex, variant
+                            );
                         }
-                    }
+                        Err(error) => {
+                            println!("Error result formatting {}", error);
+                            println!(
+                                "Object {:x}@{:x},{:x} value {:?}",
+                                *node,
+                                *index,
+                                *subindex,
+                                &data[0..len]
+                            );
+                        }
+                    },
                     Err(error) => {
                         println!("Error {}", error);
                     }
@@ -258,6 +300,7 @@ fn main() {
                 index,
                 subindex,
                 value,
+                value_type,
             }) => {
                 info!(
                     "Write Communication Object: {}@{},{} -> {:?}",
@@ -266,12 +309,16 @@ fn main() {
 
                 let mut sdo_client = SdoClient::new(*node, can_socket);
                 let mut buffer = [0_u8; 80];
-                let data = value.to_little_endian_buffer(&mut buffer);
+                let variant = match convert(value, *value_type) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        println!("Cannot convert {} into a {:?}", value, value_type);
+                        quit::with_code(1);
+                    }
+                };
+                let data = variant.to_little_endian_buffer(&mut buffer);
                 debug!("Raw Buffer: {:?}", data);
-                match sdo_client
-                    .write_object(*index, *subindex, data)
-                    .await
-                {
+                match sdo_client.write_object(*index, *subindex, data).await {
                     Ok(()) => {
                         println!("Success");
                     }
@@ -285,17 +332,27 @@ fn main() {
                 cobid,
                 remote,
                 value,
+                value_type,
             }) => {
                 info!(
                     "Inject PDO cobid 0x{:x} RFR {} Value: {:?}",
-                    cobid, remote, value.clone()
+                    cobid,
+                    remote,
+                    value.clone()
                 );
 
                 let mut buffer = [0_u8; 8];
-                let data = value.to_little_endian_buffer(&mut buffer);
-                if data.len() > 8 {
-                        println!("Error: Value needs to be equal or less than 8 bytes");
+                let variant = match convert(value, *value_type) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        println!("Cannot convert {} into a {:?}", value, value_type);
                         quit::with_code(1);
+                    }
+                };
+                let data = variant.to_little_endian_buffer(&mut buffer);
+                if data.len() > 8 {
+                    println!("Error: Value needs to be equal or less than 8 bytes");
+                    quit::with_code(1);
                 }
                 let builder = CanOpenFrameBuilder::default()
                     .set_rtr(false)
@@ -414,7 +471,7 @@ fn main() {
                                     || nodes.contains(&frame.node_id()))
                             {
                                 if *timestamp {
-                                   let elapsed = start_time.elapsed();
+                                    let elapsed = start_time.elapsed();
                                     let seconds = elapsed.as_secs() % 1000;
                                     let millis = elapsed.subsec_millis();
                                     print!("{:03}.{:03}s - ", seconds, millis);

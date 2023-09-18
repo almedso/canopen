@@ -96,7 +96,6 @@ impl Display for ClientCommandSpecifier {
             ClientCommandSpecifier::Upload => write!(f, "Uploa")?,
             ClientCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
             ClientCommandSpecifier::BlockDownload => write!(f, "BkDow")?,
-            ClientCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
             ClientCommandSpecifier::Unspecified => write!(f, "xxxxx")?,
         }
         Ok(())
@@ -161,7 +160,6 @@ impl Display for ServerCommandSpecifier {
             ServerCommandSpecifier::Upload => write!(f, "Uploa")?,
             ServerCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
             ServerCommandSpecifier::BlockDownload => write!(f, "BkDow")?,
-            ServerCommandSpecifier::BlockUpload => write!(f, "BkUpl")?,
             ServerCommandSpecifier::Abort => write!(f, "Abort")?,
             ServerCommandSpecifier::Unspecified => write!(f, "xxxxx")?,
         }
