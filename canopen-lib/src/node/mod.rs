@@ -1,24 +1,11 @@
 //! Implementation of a CANOpen node
-//!
-//! A minimal node contains of
-//! - an SDO server
-//! - an object dictionary with entries ...
-//! - A state machine
 
-#[derive(Debug, Copy, Clone)]
-pub enum State {
-    BootUp,
-    Operational,
-    Stopped,
-    PreOperational,
-    UnknownState,
-}
+pub mod node;
+pub mod object;
+pub mod object_dictionary;
+pub mod sdo_server;
 
-#[derive(Debug, Copy, Clone)]
-pub enum Mode {
-    Operational,
-    Stop,
-    PreOperational,
-    ResetApplication,
-    ResetCommunication,
-}
+pub use node;
+pub use object;
+pub use object_dictionary;
+pub use sdo_server;
