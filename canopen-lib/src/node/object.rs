@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```rust
-//! use col::{ObjectDictionaryBuilder, ValueVariant, CanOpenObject};
+//! use col::{ObjectDictionaryBuilder, ValueVariant, object::CanOpenObject};
 //!
 //! let device_type = 0x_ffff_0000_u32;  // LSB part is profile number e.g. 402; MSB is additional information
 //! let vendor_id = 0_u32; // need to be registered/purchased at CANOpen authority
@@ -15,16 +15,14 @@
 //!         .product_identifier(1_u32)  // up to the vendor to decide
 //!         .product_revision(1_u32) // up to the vendor to decide
 //!         .serial_number(123456_u32)
-//!         .custom_entry(CanOpenObject::const_object(0x6000,0x01, ValueVariant::U8(0)))
+//!         .custom_entry(CanOpenObject::new_const_object(0x6000,0x01, ValueVariant::U8(0)))
 //!         .build(node_id);
 //!
 //! ```
 
 use crate::{map_index, CanOpenError, ValueVariant};
-use array_init;
 use core::cmp::Ordering;
 use core::mem::discriminant;
-use core::result::Iter;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -54,12 +52,12 @@ pub fn default_handler(_mapped_index: u32, _new_value: ValueVariant) -> Result<(
 #[derive(Clone, Debug)]
 pub struct CanOpenObject<'a> {
     pub mapped_index: u32,
-    value: StoredValue<'a>,
-    privilege: SdoAccessType,
+    pub value: StoredValue<'a>,
+    pub privilege: SdoAccessType,
 }
 
 impl<'a> CanOpenObject<'a> {
-    pub fn const_object(index: u16, subindex: u8, value: ValueVariant<'a>) -> CanOpenObject {
+    pub fn new_const_object(index: u16, subindex: u8, value: ValueVariant<'a>) -> CanOpenObject {
         CanOpenObject {
             mapped_index: map_index(index, subindex),
             value: StoredValue::Const(value),
@@ -67,8 +65,12 @@ impl<'a> CanOpenObject<'a> {
         }
     }
 
-    pub fn variable_object(index: u16, subindex: u8, value: ValueVariant<'a>) -> CanOpenObject<'a> {
-        if discriminant(&value) != discriminant(&ValueVariant::S("")) {
+    pub fn new_variable_object(
+        index: u16,
+        subindex: u8,
+        value: ValueVariant<'a>,
+    ) -> CanOpenObject<'a> {
+        if discriminant(&value) == discriminant(&ValueVariant::S("")) {
             panic!("Only constant storage class is supported for string typed objects");
         }
         CanOpenObject {
@@ -78,12 +80,12 @@ impl<'a> CanOpenObject<'a> {
         }
     }
 
-    pub fn persistent_object(
+    pub fn new_persistent_object(
         index: u16,
         subindex: u8,
         value: ValueVariant<'a>,
     ) -> CanOpenObject<'a> {
-        if discriminant(&value) != discriminant(&ValueVariant::S("")) {
+        if discriminant(&value) == discriminant(&ValueVariant::S("")) {
             panic!("Only constant storage class is supported for string typed objects");
         }
         CanOpenObject {
@@ -93,7 +95,7 @@ impl<'a> CanOpenObject<'a> {
         }
     }
 
-    pub fn nostorage_object(
+    pub fn new_nostorage_object(
         index: u16,
         subindex: u8,
         handler: ObjectChangeHandler,
@@ -142,6 +144,12 @@ impl<'a> CanOpenObject<'a> {
         }
     }
 
+    /// Retrieve a value from the object
+    ///
+    /// # Returns
+    ///
+    /// - The value as ValueVariant
+    /// - CanOpenError of the object is not stored at all
     pub fn get_value(&self) -> Result<ValueVariant<'a>, CanOpenError> {
         match &self.value {
             StoredValue::Const(v) => Ok(v.clone()),
@@ -154,10 +162,6 @@ impl<'a> CanOpenObject<'a> {
                 }
             }
         }
-    }
-
-    fn make_persistent(&self) -> Result<(), CanOpenError> {
-        Ok(())
     }
 }
 
@@ -175,7 +179,7 @@ impl PartialOrd for CanOpenObject<'_> {
 
 impl Default for CanOpenObject<'_> {
     fn default() -> Self {
-        CanOpenObject::const_object(0, 0, ValueVariant::U8(0))
+        CanOpenObject::new_const_object(0, 0, ValueVariant::U8(0))
     }
 }
 
@@ -185,137 +189,88 @@ mod test {
     use super::*;
 
     #[test]
-    fn can_open_object() {
+    fn partial_eq_partial_ord() {
         assert_eq!(
-            CanOpenObject::const_object(1, 1, ValueVariant::U8(0))
-                == CanOpenObject::const_object(1, 1, ValueVariant::U8(1)),
+            CanOpenObject::new_const_object(1, 1, ValueVariant::U8(0))
+                == CanOpenObject::new_const_object(1, 1, ValueVariant::U8(1)),
             true
         );
         assert_eq!(
-            CanOpenObject::const_object(1, 2, ValueVariant::U8(0))
-                > CanOpenObject::const_object(1, 1, ValueVariant::U8(0)),
+            CanOpenObject::new_const_object(1, 2, ValueVariant::U8(0))
+                > CanOpenObject::new_const_object(1, 1, ValueVariant::U8(0)),
             true
         );
         assert_eq!(
-            CanOpenObject::const_object(1, 1, ValueVariant::U8(0))
-                < CanOpenObject::const_object(2, 1, ValueVariant::U8(0)),
+            CanOpenObject::new_const_object(1, 1, ValueVariant::U8(0))
+                < CanOpenObject::new_const_object(2, 1, ValueVariant::U8(0)),
             true
         );
     }
 
     #[test]
-    fn od_access() {
-        let mut od = ObjectDictionary {
-            number_of_objects: 0,
-            object: array_init::array_init(|i| {
-                CanOpenObject::const_object((i + 1) as u16, 0, ValueVariant::U8(0))
-            }),
-            node_id: 10,
-        };
-        assert_eq!(
-            Err(CanOpenError::ObjectDoesNotExist {
-                index: 1,
-                subindex: 0
-            }),
-            od.array_index(1, 0)
-        );
-        od.number_of_objects = 1;
-        assert_eq!(Ok(0), od.array_index(1, 0));
-        assert!(od.array_index(0, 0).is_err());
-        assert!(od.array_index(2, 0).is_err());
-
-        od.number_of_objects = 2;
-        assert!(od.array_index(0, 0).is_err());
-        assert_eq!(Ok(0), od.array_index(1, 0));
-        assert!(od.array_index(1, 5).is_err());
-        assert_eq!(Ok(1), od.array_index(2, 0));
-        assert!(od.array_index(3, 0).is_err());
-
-        od.number_of_objects = 100;
-        assert!(od.array_index(0, 0).is_err());
-        assert_eq!(Ok(0), od.array_index(1, 0));
-        assert!(od.array_index(1, 5).is_err());
-        assert_eq!(Ok(23), od.array_index(24, 0));
-        assert!(od.array_index(40, 1).is_err());
-        assert_eq!(Ok(48), od.array_index(49, 0));
-        assert_eq!(Ok(99), od.array_index(100, 0));
-        assert!(od.array_index(99, 1).is_err());
+    fn variable_access() {
+        let sut = CanOpenObject::new_variable_object(1, 1, ValueVariant::U8(0));
+        // modify the object
+        assert_eq!(true, sut.set_value(ValueVariant::U8(1)).unwrap());
+        // do not modify the object
+        assert_eq!(false, sut.set_value(ValueVariant::U8(1)).unwrap());
+        assert_eq!(ValueVariant::U8(1), sut.get_value().unwrap());
     }
 
-    mod builder {
+    #[test]
+    #[should_panic]
+    fn variable_access_string_type() {
+        let _sut =
+            CanOpenObject::new_variable_object(1, 1, ValueVariant::S("this is a str reference"));
+    }
 
-        use super::*;
+    #[test]
+    fn persistent_access() {
+        let sut = CanOpenObject::new_persistent_object(1, 1, ValueVariant::U8(0));
+        // modify the object
+        assert_eq!(true, sut.set_value(ValueVariant::U8(1)).unwrap());
+        // do not modify the object
+        assert_eq!(false, sut.set_value(ValueVariant::U8(1)).unwrap());
+        assert_eq!(ValueVariant::U8(1), sut.get_value().unwrap());
+    }
 
-        impl ObjectDictionaryBuilder<'_> {
-            fn is_ordered(&self) -> bool {
-                if self.number_of_objects == 0 {
-                    return true;
-                }
-                for i in 0..self.number_of_objects - 1 {
-                    if self.object[i].mapped_index >= self.object[i + 1].mapped_index {
-                        return false;
-                    }
-                }
-                true
-            }
+    #[test]
+    #[should_panic]
+    fn persistent_access_string_type() {
+        let _sut =
+            CanOpenObject::new_persistent_object(1, 1, ValueVariant::S("this is a str reference"));
+    }
+
+    #[test]
+    fn const_get() {
+        let sut = CanOpenObject::new_const_object(1, 1, ValueVariant::S("const str ref"));
+        assert_eq!(ValueVariant::S("const str ref"), sut.get_value().unwrap());
+    }
+
+    #[test]
+    fn const_set_returns_error() {
+        let sut = CanOpenObject::new_const_object(1, 1, ValueVariant::U8(2));
+        assert!(sut.set_value(ValueVariant::U8(3)).is_err());
+    }
+
+    fn nostorage_spy(_mapped_index: u32, new_value: ValueVariant) -> Result<(), CanOpenError> {
+        if ValueVariant::U8(42) == new_value {
+            Ok(())
+        } else {
+            Err(CanOpenError::SharedOdAccessError)
         }
+    }
 
-        #[test]
-        fn ordering_at_entry_insert() {
-            let sut = ObjectDictionaryBuilder::new(123, 456);
-            assert!(sut.is_ordered());
+    #[test]
+    fn nostorage_set() {
+        let sut = CanOpenObject::new_nostorage_object(1, 1, nostorage_spy);
+        assert!(sut.set_value(ValueVariant::U8(42)).unwrap());
+        assert!(sut.set_value(ValueVariant::U8(1)).is_err());
+    }
 
-            // Try lowest index at the start
-            // let sut = sut.custom_entry(CanOpenObject::const_object(0, 0, ValueVariant::U8(0)));
-            // assert!(sut.is_ordered());
-
-            // Try highest index at the end
-            let sut = sut.custom_entry(CanOpenObject::const_object(
-                0xffff,
-                0xff,
-                ValueVariant::U8(0),
-            ));
-            assert!(sut.is_ordered());
-
-            // Try  one before highest index
-            let sut = sut.custom_entry(CanOpenObject::const_object(
-                0xfffe,
-                0xff,
-                ValueVariant::U8(0),
-            ));
-            assert!(sut.is_ordered());
-
-            // Try something in the middle
-            let sut = sut.custom_entry(CanOpenObject::const_object(
-                0x1200,
-                0xff,
-                ValueVariant::U8(0),
-            ));
-            assert!(sut.is_ordered());
-        }
-
-        #[test]
-        #[should_panic]
-        fn insert_if_entry_exists() {
-            let sut = ObjectDictionaryBuilder::new(123, 456);
-            // try to add device type again
-            let _sut =
-                sut.custom_entry(CanOpenObject::const_object(0x1000, 1, ValueVariant::U8(0)));
-        }
-
-        #[test]
-        #[should_panic]
-        fn insert_if_no_space_left_in_od() {
-            let mut sut = ObjectDictionaryBuilder::new(123, 456);
-            for index in 0..MAX_NUMBER_OF_OBJECTS {
-                // use odd subindexes to prevent panic for entry exists
-                let sut_new = sut.custom_entry(CanOpenObject::const_object(
-                    index as u16,
-                    13,
-                    ValueVariant::U8(0),
-                ));
-                sut = sut_new;
-            }
-        }
+    #[test]
+    fn nostorage_get_returns_error() {
+        let sut = CanOpenObject::new_nostorage_object(1, 1, nostorage_spy);
+        assert!(sut.get_value().is_err());
     }
 }

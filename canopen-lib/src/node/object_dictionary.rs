@@ -5,7 +5,7 @@
 //! # Example
 //!
 //! ```rust
-//! use col::{ObjectDictionaryBuilder, ValueVariant, CanOpenObject};
+//! use col::{ObjectDictionaryBuilder, ValueVariant, object::CanOpenObject};
 //!
 //! let device_type = 0x_ffff_0000_u32;  // LSB part is profile number e.g. 402; MSB is additional information
 //! let vendor_id = 0_u32; // need to be registered/purchased at CANOpen authority
@@ -17,7 +17,7 @@
 //!         .product_identifier(1_u32)  // up to the vendor to decide
 //!         .product_revision(1_u32) // up to the vendor to decide
 //!         .serial_number(123456_u32)
-//!         .custom_entry(CanOpenObject::const_object(0x6000,0x01, ValueVariant::U8(0)))
+//!         .custom_entry(CanOpenObject::new_const_object(0x6000,0x01, ValueVariant::U8(0)))
 //!         .build(node_id);
 //!
 //! ```
@@ -68,14 +68,16 @@ impl<'a> ObjectDictionaryBuilder<'a> {
     pub fn new(device_type: u32, vendor_id: u32) -> ObjectDictionaryBuilder<'static> {
         let mut odb = ObjectDictionaryBuilder {
             object: array_init::array_init(|_| {
-                CanOpenObject::const_object(0, 0, ValueVariant::U8(0))
+                CanOpenObject::new_const_object(0, 0, ValueVariant::U8(0))
             }),
             number_of_objects: 3,
         };
-        odb.object[0] = CanOpenObject::const_object(0x1000, 0x01, ValueVariant::U32(device_type));
+        odb.object[0] =
+            CanOpenObject::new_const_object(0x1000, 0x01, ValueVariant::U32(device_type));
         let error_flags = 0_u8;
-        odb.object[1] = CanOpenObject::const_object(0x1001, 0x01, ValueVariant::U8(error_flags));
-        odb.object[2] = CanOpenObject::const_object(0x1018, 0x01, ValueVariant::U32(vendor_id));
+        odb.object[1] =
+            CanOpenObject::new_const_object(0x1001, 0x01, ValueVariant::U8(error_flags));
+        odb.object[2] = CanOpenObject::new_const_object(0x1018, 0x01, ValueVariant::U32(vendor_id));
 
         odb
     }
@@ -125,7 +127,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of device name object ad 0x1008,0x01
     pub fn device_name(self, device_name: &'a str) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x1008,
             0x01,
             ValueVariant::S(device_name),
@@ -134,7 +136,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of hardware_version object ad 0x1009,0x01
     pub fn hardware_version(self, hardware_version: &'a str) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x1009,
             0x01,
             ValueVariant::S(hardware_version),
@@ -143,7 +145,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of software_version object ad 0x100A,0x01
     pub fn software_version(self, software_version: &'a str) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x100A,
             0x01,
             ValueVariant::S(software_version),
@@ -152,7 +154,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of product_identifier object ad 0x1018,0x02
     pub fn product_identifier(self, product_identifier: u32) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x1018,
             0x02,
             ValueVariant::U32(product_identifier),
@@ -161,7 +163,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of product revision object ad 0x1018,0x03
     pub fn product_revision(self, product_revision: u32) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x1018,
             0x03,
             ValueVariant::U32(product_revision),
@@ -170,7 +172,7 @@ impl<'a> ObjectDictionaryBuilder<'a> {
 
     /// Short hand registry of serial number object ad 0x1018,0x04
     pub fn serial_number(self, serial_number: u32) -> ObjectDictionaryBuilder<'a> {
-        self.custom_entry(CanOpenObject::const_object(
+        self.custom_entry(CanOpenObject::new_const_object(
             0x1018,
             0x04,
             ValueVariant::U32(serial_number),
@@ -352,7 +354,7 @@ mod test {
         let mut od = ObjectDictionary {
             number_of_objects: 0,
             object: array_init::array_init(|i| {
-                CanOpenObject::const_object((i + 1) as u16, 0, ValueVariant::U8(0))
+                CanOpenObject::new_const_object((i + 1) as u16, 0, ValueVariant::U8(0))
             }),
             node_id: 10,
         };
@@ -414,7 +416,7 @@ mod test {
             // assert!(sut.is_ordered());
 
             // Try highest index at the end
-            let sut = sut.custom_entry(CanOpenObject::const_object(
+            let sut = sut.custom_entry(CanOpenObject::new_const_object(
                 0xffff,
                 0xff,
                 ValueVariant::U8(0),
@@ -422,7 +424,7 @@ mod test {
             assert!(sut.is_ordered());
 
             // Try  one before highest index
-            let sut = sut.custom_entry(CanOpenObject::const_object(
+            let sut = sut.custom_entry(CanOpenObject::new_const_object(
                 0xfffe,
                 0xff,
                 ValueVariant::U8(0),
@@ -430,7 +432,7 @@ mod test {
             assert!(sut.is_ordered());
 
             // Try something in the middle
-            let sut = sut.custom_entry(CanOpenObject::const_object(
+            let sut = sut.custom_entry(CanOpenObject::new_const_object(
                 0x1200,
                 0xff,
                 ValueVariant::U8(0),
@@ -443,8 +445,11 @@ mod test {
         fn insert_if_entry_exists() {
             let sut = ObjectDictionaryBuilder::new(123, 456);
             // try to add device type again
-            let _sut =
-                sut.custom_entry(CanOpenObject::const_object(0x1000, 1, ValueVariant::U8(0)));
+            let _sut = sut.custom_entry(CanOpenObject::new_const_object(
+                0x1000,
+                1,
+                ValueVariant::U8(0),
+            ));
         }
 
         #[test]
@@ -453,7 +458,7 @@ mod test {
             let mut sut = ObjectDictionaryBuilder::new(123, 456);
             for index in 0..MAX_NUMBER_OF_OBJECTS {
                 // use odd subindexes to prevent panic for entry exists
-                let sut_new = sut.custom_entry(CanOpenObject::const_object(
+                let sut_new = sut.custom_entry(CanOpenObject::new_const_object(
                     index as u16,
                     13,
                     ValueVariant::U8(0),
