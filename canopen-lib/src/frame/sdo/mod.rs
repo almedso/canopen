@@ -14,7 +14,7 @@
 //! - **expedited SDO transfer** payload is less then or equal four bytes.
 //!   Index (2nd and 3rd byte) and sub-index (4th byte) are always part of the data
 //! - **segmented SDO transfer** if the payload is greater then four bytes.
-//!   It is always always initialed by an expedited frame and each frame is acknowledged.
+//!   It is always initialed by an expedited frame and each frame is acknowledged.
 //! - **block SDO transfer** is similar to segmented transfer, except an acknowledgement
 //!   is send after a block of frames.
 //!

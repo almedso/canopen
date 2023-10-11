@@ -6,15 +6,16 @@ use crate::CanOpenError;
 use crate::CanOpenFrameBuilder;
 use crate::CommandSpecifier;
 use crate::{CANOpenFrame, FrameType, Payload, SDOAbortCode};
+use std::rc::Rc;
 
 // std/no-std dependent dependent
 use log::debug;
-use tokio_socketcan::CANSocket; // for reading next  from can socket
+use tokio_socketcan::{CANFrame, CANSocket}; // for reading next  from can socket
 
-pub struct SdoServer {
+pub struct SdoServer<'a> {
     node_id: u8,
     can_socket: CANSocket,
-    object_dictionary: &ObjectDictionary,
+    object_dictionary: Rc<ObjectDictionary<'a>>,
 }
 
 /// A CANOpen server
@@ -26,30 +27,8 @@ pub struct SdoServer {
 /// # Example
 ///
 /// ```
-/// use tokio_socketcan::CANSocket;
-/// use tokio;
-///
-///
-/// fn main() {
-///     let my_future = async {
-///         let mut can_socket = match CANSocket::open("can0") {
-///             Ok(socket) => socket,
-///             Err(error) => {
-///                 error!("Error opening {}: {}", cli.interface, error);
-///                 quit::with_code(1);
-///             }
-///         };
-///         const node_id: u8 = 10;
-///         let server = SdoServer::new(node_id, can_socket);
-///         loop {
-///             server.run().await;
-///         }
-///     }
-///     let rt = tokio::runtime::Runtime::new().unwrap();
-///     rt.block_on(my_future) // tokio async runtime
-/// }
 /// ```
-impl SdoServer {
+impl<'a> SdoServer<'a> {
     /// Create a new canopen server
     ///
     /// # Arguments
@@ -62,7 +41,11 @@ impl SdoServer {
     ///
     /// Panics if the `node_id` is not in range of `0..0x7F`.
     ///
-    pub fn new(node_id: u8, can_socket: CANSocket, object_dictionary: &ObjectDictionary) -> Self {
+    pub fn new(
+        node_id: u8,
+        can_socket: CANSocket,
+        object_dictionary: Rc<ObjectDictionary<'a>>,
+    ) -> Self {
         if node_id > 0x7F {
             panic!("node_id is out of allowed range [0..0x7F] {:?}", node_id);
         }
@@ -73,34 +56,80 @@ impl SdoServer {
         }
     }
 
-    /// Run function ...
-    pub fn async run(&self) {
-        while let Some(Ok(frame)) = self.can_socket.next().await {
-            let frame = CANOpenFrame::try_from(frame)?;
-            if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoRx {
-                if let Payload::SdoWithIndex(payload) = frame.payload {
-                    if payload.expedited_flag {
-                        // Expedited response
-                        len = extract_length(payload.size);
-                        for (i, item) in data.iter_mut().enumerate() {
-                            if i < len {
-                                *item = (payload.data >> (8 * i) & 0xff) as u8;
-                            }
-                        }
-                        break;
-                    } else {
-                        // Data bigger than 4 byte -> segmented response is required
-                        len = payload.data as usize;
-                        if len > data.len() {
-                            return Err(CanOpenError::StringIsTooLong {
-                                max_length: data.len(),
-                                given_length: len,
-                            });
-                        }
+    /// Process a complete SDO request
+    ///
+    /// if it is an expedited request it is
+    /// - receive a request
+    /// - send a single repsonse.
+    /// If it is a none expedited request it is a sequence of
+    /// - request
+    /// - 1st response
+    /// - next request
+    /// - next response
+    /// - ... request
+    /// - ... response
+    /// - last request
+    /// - last response
+    ///
+    /// # Return
+    ///
+    /// - `()` - if fhe frame is no SDO request
+    /// - `()` - if the response to the last frame request was not an error
+    /// - `CanOpenError::SdoTransferInterrupted` - if another SDO request destroyed the sdo transfer
+    ///    session
+    /// - `CanOpenError::SdoTransferTimeout` - if the Request was aborted due to a missing request
+    /// - `CanOpenError::ObjectDoesNotExist`
+    pub async fn process_complete_sdo_request(
+        &self,
+        frame: &CANOpenFrame,
+    ) -> Result<(), CanOpenError> {
+        if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoRx {
+            // only handle SDO Rx frames for of the node
+            if let Payload::SdoWithIndex(payload) = &frame.payload {
+                let index = payload.index;
+                let subindex = payload.subindex;
+                let response_frame_builder = match payload.cs {
+                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Download) => {
+                        // download expedited request - aka write
+                        CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .download_response()
                     }
-                }
+                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::DownloadSegment) => {
+                        // download segmented request - aka write --> send abort code
+                        CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .abort(SDOAbortCode::UnsupportedAccess)
+                    }
+                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Upload) => {
+                        // download segmented request - aka write --> send abort code
+                        CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .upload_one_byte_expedited_response(01_u8)
+                    }
+                    CommandSpecifier::Ccs(_) | CommandSpecifier::Scs(_) => {
+                        // Invalid command specifier in request --> send abort code
+                        CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .abort(SDOAbortCode::GeneralError)
+                    }
+                };
+
+                debug!("Send download response");
+                self.can_socket
+                    .write_frame(response_frame_builder.build().into())
+                    .map_err(|_| -> CanOpenError { CanOpenError::SocketInstanciatingError })?
+                    .await
+                    .map_err(|_| -> CanOpenError { CanOpenError::SocketWriteError })?;
+            } else {
+                // no index and subindex; Data bigger than 4 byte -> segmented response is required
             }
         }
+        Ok(())
     }
 }
 

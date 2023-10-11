@@ -24,8 +24,6 @@
 
 use crate::{map_index, CanOpenError, ValueVariant};
 use array_init;
-use core::cmp::Ordering;
-use core::mem::discriminant;
 use core::result::Iter;
 
 use super::object::*;
