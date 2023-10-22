@@ -5,3 +5,5 @@ canopen-lib/Cargo.lock
 canopen-lib/target
 
 bdd/target
+
+*log
