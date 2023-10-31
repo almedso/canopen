@@ -1,5 +1,53 @@
-//! SDO Client
+//! SDO Server:
 //!
+//! Read a data object from a sdo servicer a.k.a. upload
+//!
+//! # Arguments
+//!
+//! * `index` - The index of the object to access on the server side
+//! * `subindex` - The index of the object to access on the server side
+//! * `data`- Buffer where the ok - result is transferred into
+//!
+//! # Returns
+//!
+//! * Number of bytes written into the result buffer
+//!
+//! # Errors
+//!
+//! - SDO timeout (in case any response takes longer than the maximum answer
+//!   time or does not arrive at all.
+//! - SDO Abort code - details reveal
+//!
+//! # Example
+//!
+//! ```
+//! use col::node::{sdo_server::SdoServer, object_dictionary::ObjectDictionaryBuilder};
+//! use col::CANOpenFrame;
+//! use tokio_socketcan::CANSocket;
+//!
+//! let my_future = async {
+//!
+//!     let mut can_socket = CANSocket::open("can0").unwrap();
+//!     let node_id_of_sdo_server = 0x20_u8;
+//!     let device_type = 0x_ffff_0000_u32;  // LSB part is profile number e.g. 402; MSB is additional information
+//!     let vendor_id = 0_u32; // need to be registered/purchased at CANOpen authority
+//!     let od = ObjectDictionaryBuilder::new(device_type, vendor_id)
+//!         .device_name("Device Name")
+//!         .hardware_version("Rev 1.0")
+//!         .software_version("1.0.0")
+//!         .product_identifier(1_u32)  // up to the vendor to decide
+//!         .product_revision(1_u32) // up to the vendor to decide
+//!         .serial_number(123456_u32)
+//!         .build(node_id_of_sdo_server);
+//!     let mut sdo_server= SdoServer::new(node_id_of_sdo_server, can_socket, od.into());
+//!
+//!     // run CANOpen frame processing in a loop at infinitum
+//!     while let frame = sdo_server.next_sdo_frame().await {
+//!         process_complete_sdo_request(frame).await.unwrap_or_default();
+//!     }
+//! };
+//!
+//! ```
 use crate::extract_length;
 use crate::object_dictionary::ObjectDictionary;
 use crate::CanOpenError;
@@ -9,6 +57,7 @@ use crate::{CANOpenFrame, FrameType, Payload, SDOAbortCode};
 use std::rc::Rc;
 
 // std/no-std dependent dependent
+use futures_util::stream::StreamExt;
 use log::debug;
 use tokio_socketcan::{CANFrame, CANSocket}; // for reading next  from can socket
 
@@ -53,6 +102,24 @@ impl<'a> SdoServer<'a> {
             node_id,
             can_socket,
             object_dictionary,
+        }
+    }
+
+    /// Pick sdo frames addressed to this node  from the stream of CAN frames
+    ///
+    /// Other frames are ignored
+    pub async fn next_sdo_frame(&mut self) -> CANOpenFrame {
+        loop {
+            if let Some(Ok(frame)) = self.can_socket.next().await {
+                if let Ok(canopen_frame) = CANOpenFrame::try_from(frame) {
+                    if canopen_frame.node_id() == self.node_id
+                        && (canopen_frame.frame_type() == FrameType::SdoTx
+                            || canopen_frame.frame_type() == FrameType::SdoRx)
+                    {
+                        return canopen_frame;
+                    }
+                }
+            }
         }
     }
 
