@@ -31,6 +31,6 @@ futures = "0.3"
 mio = { version = "0.8", features = ["os-ext"] }
 libc = "0.2"
 thiserror = "1.0"
-tokio = { version = "1", features = ["net", "macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["net", "macros", "rt-multi-thread", "time"] }
 futures-timer = "3.0"
 futures-util = "0.3"
