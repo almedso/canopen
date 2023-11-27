@@ -226,6 +226,10 @@ fn convert<'a>(
     value_type: ValueType,
 ) -> Result<ValueVariant<'a>, ArgumentError> {
     match value_type {
+        ValueType::U8 => {
+            let v = value.parse::<u8>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::U8(v))
+        }
         _ => Ok(ValueVariant::S(&value[..])),
     }
 }
