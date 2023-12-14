@@ -24,7 +24,6 @@
 
 use crate::{map_index, CanOpenError, ValueVariant};
 use array_init;
-use core::result::Iter;
 
 use super::object::*;
 
@@ -240,10 +239,11 @@ impl<'a> ObjectDictionary<'a> {
     pub fn update_pdo(&self, index: u16, subindex: u8) -> Result<(), CanOpenError> {
         todo!("update_pdo");
     }
+
     /// SDO server interface - invoked only by SDO server
     /// Write an object where the type size is less or equal four bytes
-    fn download_expedited(
-        &mut self,
+    pub fn download_expedited(
+        &self,
         index: u16,
         subindex: u8,
         value: ValueVariant<'a>,
@@ -259,21 +259,15 @@ impl<'a> ObjectDictionary<'a> {
     }
 
     /// SDO server interface - invoked only by SDO server
-    /// Write an object where theytes
-    fn download(
-        &mut self,
-        index: u16,
-        subindex: u8,
-        value: Iter<'_, &[u8]>,
-    ) -> Result<(), CanOpenError> {
-        panic!("Not implemented yet");
-    }
-
-    /// SDO server interface - invoked only by SDO server
     /// Read an object
-    /// !TODO review the variance of the signature
-    fn upload(&self, index: u16, subindex: u8) -> Result<Iter<'_, [u8; 7]>, CanOpenError> {
-        panic!("Not implemented yet");
+    pub fn upload(&self, index: u16, subindex: u8) -> Result<ValueVariant<'a>, CanOpenError> {
+        let array_index = self.array_index(index, subindex)?;
+        match self.object[array_index].privilege {
+            SdoAccessType::WriteOnly => Err(CanOpenError::ReadAccessImpossible),
+            SdoAccessType::ReadOnly | SdoAccessType::ReadWrite => {
+                self.object[array_index].get_value()
+            }
+        }
     }
 
     /// Take care for all activities a new object value requires.

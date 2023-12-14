@@ -24,6 +24,7 @@
 //! use col::node::{sdo_server::SdoServer, object_dictionary::ObjectDictionaryBuilder};
 //! use col::CANOpenFrame;
 //! use tokio_socketcan::CANSocket;
+//! use core::str::from_utf8;
 //!
 //! let my_future = async {
 //!
@@ -48,23 +49,97 @@
 //! };
 //!
 //! ```
-use crate::extract_length;
 use crate::object_dictionary::ObjectDictionary;
 use crate::CanOpenError;
 use crate::CanOpenFrameBuilder;
+use crate::CommandDataSize;
 use crate::CommandSpecifier;
+use crate::ValueVariant;
+use crate::WithIndexPayload;
 use crate::{CANOpenFrame, FrameType, Payload, SDOAbortCode};
 use std::rc::Rc;
 
 // std/no-std dependent dependent
 use futures_util::stream::StreamExt;
 use log::debug;
-use tokio_socketcan::{CANFrame, CANSocket}; // for reading next  from can socket
+use tokio_socketcan::CANSocket; // for reading next  from can socket
+
+#[derive(Default, PartialEq)]
+pub struct SdoSession {
+    object_index: u16,
+    object_subindex: u8,
+    data_index: u32,
+    data_size: u32,
+    segment_number: u32,
+    toggle_flag: bool,
+    acknowledge_frame: u32, // at blockdownload how often an acknowledge frame the server needs to send to the client
+}
 
 pub struct SdoServer<'a> {
     node_id: u8,
     can_socket: CANSocket,
     object_dictionary: Rc<ObjectDictionary<'a>>,
+    session: SdoSession,
+}
+
+struct IndexedPayloadError;
+
+fn cast_indexed_payload_to_value_variant<'a>(
+    object_value: ValueVariant<'_>,
+    payload: &'a WithIndexPayload,
+) -> Result<ValueVariant<'a>, IndexedPayloadError> {
+    match object_value {
+        ValueVariant::F32(_) => {
+            if payload.size == CommandDataSize::FourBytes {
+                Ok(ValueVariant::F32(payload.data as f32))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::U32(_) => {
+            if payload.size == CommandDataSize::FourBytes {
+                Ok(ValueVariant::U32(payload.data))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::U16(_) => {
+            if payload.size == CommandDataSize::TwoBytes {
+                Ok(ValueVariant::U16(payload.data as u16))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::U8(_) => {
+            if payload.size == CommandDataSize::OneByte {
+                Ok(ValueVariant::U8(payload.data as u8))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::I32(_) => {
+            if payload.size == CommandDataSize::FourBytes {
+                Ok(ValueVariant::I32(payload.data as i32))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::I16(_) => {
+            if payload.size == CommandDataSize::TwoBytes {
+                Ok(ValueVariant::I16(payload.data as i16))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::I8(_) => {
+            if payload.size == CommandDataSize::OneByte {
+                Ok(ValueVariant::I8(payload.data as i8))
+            } else {
+                Err(IndexedPayloadError)
+            }
+        }
+        ValueVariant::S(_) => Err(IndexedPayloadError),
+    }
 }
 
 /// A CANOpen server
@@ -102,6 +177,7 @@ impl<'a> SdoServer<'a> {
             node_id,
             can_socket,
             object_dictionary,
+            session: Default::default(),
         }
     }
 
@@ -127,7 +203,7 @@ impl<'a> SdoServer<'a> {
     ///
     /// if it is an expedited request it is
     /// - receive a request
-    /// - send a single repsonse.
+    /// - send a single response.
     /// If it is a none expedited request it is a sequence of
     /// - request
     /// - 1st response
@@ -146,63 +222,167 @@ impl<'a> SdoServer<'a> {
     ///    session
     /// - `CanOpenError::SdoTransferTimeout` - if the Request was aborted due to a missing request
     /// - `CanOpenError::ObjectDoesNotExist`
-    pub async fn process_complete_sdo_request(
-        &self,
-        frame: &CANOpenFrame,
-    ) -> Result<(), CanOpenError> {
+    pub async fn process_frame(&self, frame: &'a CANOpenFrame) -> Result<(), CanOpenError> {
         if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoRx {
-            // only handle SDO Rx frames for of the node
-            if let Payload::SdoWithIndex(payload) = &frame.payload {
-                let index = payload.index;
-                let subindex = payload.subindex;
-                let response_frame_builder = match payload.cs {
-                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Download) => {
-                        // download expedited request - aka write
-                        CanOpenFrameBuilder::sdo_response(self.node_id)
-                            .unwrap()
-                            .with_index(index, subindex)
-                            .download_response()
-                    }
-                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::DownloadSegment) => {
-                        // download segmented request - aka write --> send abort code
-                        CanOpenFrameBuilder::sdo_response(self.node_id)
-                            .unwrap()
-                            .with_index(index, subindex)
-                            .abort(SDOAbortCode::UnsupportedAccess)
-                    }
-                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Upload) => {
-                        // download segmented request - aka write --> send abort code
-                        CanOpenFrameBuilder::sdo_response(self.node_id)
-                            .unwrap()
-                            .with_index(index, subindex)
-                            .upload_one_byte_expedited_response(01_u8)
-                    }
-                    CommandSpecifier::Ccs(_) | CommandSpecifier::Scs(_) => {
-                        // Invalid command specifier in request --> send abort code
-                        CanOpenFrameBuilder::sdo_response(self.node_id)
-                            .unwrap()
-                            .with_index(index, subindex)
-                            .abort(SDOAbortCode::GeneralError)
-                    }
-                };
+            let response = self.process_frame_with_index(frame);
+            self.process_frame_without_index(frame);
 
-                debug!("Send download response");
+            if let Some(response_frame_builder) = response {
+                debug!("Send SDO response communication object");
                 self.can_socket
-                    .write_frame(response_frame_builder.build().into())
+                    .write_frame(response_frame_builder.into())
                     .map_err(|_| -> CanOpenError { CanOpenError::SocketInstanciatingError })?
                     .await
                     .map_err(|_| -> CanOpenError { CanOpenError::SocketWriteError })?;
-            } else {
-                // no index and subindex; Data bigger than 4 byte -> segmented response is required
             }
         }
         Ok(())
     }
-}
 
-/*
-fn sdo_download_expedited(...)
-    od.download_expedited(...).maperr(|_| -> CanOpenError::SdoAbortCode { SDOAbortCode::ObjectDoesNotExist })?
-    Ok(())
+    fn process_frame_without_index(&self, frame: &CANOpenFrame) {
+        if let Payload::SdoWithoutIndex(payload) = &frame.payload {
+            // no index and subindex; Data bigger than 4 byte -> segmented response is required
+            if self.session == Default::default() {
+                // A session must be setup at this point already
+                // since there is no index,subindex known, an error response cannot be sent
+            } else {
+                match payload.cs {
+                    CommandSpecifier::Ccs(crate::ClientCommandSpecifier::DownloadSegment) => {}
+                    CommandSpecifier::Ccs(_) => {}
+                    CommandSpecifier::Scs(_) => {}
+                }
+            }
+        }
+    }
+
+    fn process_frame_with_index(&self, frame: &'a CANOpenFrame) -> Option<CANOpenFrame> {
+        if let Payload::SdoWithIndex(payload) = &frame.payload {
+            let index = payload.index;
+            let subindex = payload.subindex;
+            let response_frame = match payload.cs {
+                CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Download) => {
+                    // download expedited request - aka write
+                    if let Ok(object) = self.object_dictionary.get_object_value(index, subindex) {
+                        if let Ok(value) = cast_indexed_payload_to_value_variant(object, &payload) {
+                            match self.object_dictionary
+                                .download_expedited(index, subindex, value)
+                                .map_err(|error| match error {
+                                    CanOpenError::CannotWriteToConstStorage
+                                    | CanOpenError::WritingForbidden => {
+                                        SDOAbortCode::WriteReadOnlyError
+                                    }
+                                    _ => SDOAbortCode::DictionaryError,
+                                }) {
+                                Ok(()) => CanOpenFrameBuilder::sdo_response(self.node_id)
+                                    .unwrap()
+                                    .with_index(index, subindex)
+                                    .download_response()
+                                    .build(),
+                                Err(abort_code) => CanOpenFrameBuilder::sdo_response(self.node_id)
+                                    .unwrap()
+                                    .with_index(index, subindex)
+                                    .abort(abort_code)
+                                    .build(),
+                            }
+                        } else {
+                            CanOpenFrameBuilder::sdo_response(self.node_id)
+                                .unwrap()
+                                .with_index(index, subindex)
+                                .abort(SDOAbortCode::WrongLength)
+                                .build()
+                        }
+                    } else {
+                        CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .abort(SDOAbortCode::ObjectDoesNotExist)
+                            .build()
+                    }
+                }
+                CommandSpecifier::Ccs(crate::ClientCommandSpecifier::UploadSegment) => {
+                    // todo
+                    CanOpenFrameBuilder::sdo_response(self.node_id)
+                        .unwrap()
+                        .with_index(index, subindex)
+                        .abort(SDOAbortCode::UnsupportedAccess)
+                        .build()
+                }
+                CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Upload) => {
+                    match  self.object_dictionary.upload(index, subindex).map_err(|error| match error {
+                        CanOpenError::ObjectDoesNotExist { index: _, subindex: _ } =>  SDOAbortCode::ObjectDoesNotExist,
+                        CanOpenError::ReadAccessImpossible => SDOAbortCode::WriteReadOnlyError,
+                        _ => SDOAbortCode::DictionaryError,
+                    }) {
+                        Ok(object_value) =>  match object_value {
+                            ValueVariant::S(v) => self.process_segmented(index, subindex, v),
+                            _ => self.send_expedited_object_value(index, subindex, object_value),
+                            }
+                        Err(abort_code) => CanOpenFrameBuilder::sdo_response(self.node_id)
+                            .unwrap()
+                            .with_index(index, subindex)
+                            .abort(abort_code)
+                            .build(),
+                    }
+                }
+                CommandSpecifier::Ccs(crate::ClientCommandSpecifier::BlockDownload) => {
+                    // will be implemented later
+                    CanOpenFrameBuilder::sdo_response(self.node_id)
+                        .unwrap()
+                        .with_index(index, subindex)
+                        .abort(SDOAbortCode::UnsupportedAccess)
+                        .build()
+                }
+                CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Unspecified)
+                    // should not happen at all
+                | CommandSpecifier::Ccs(crate::ClientCommandSpecifier::BlockUpload)
+                    // block upload aka read large chunks from the server --> send abort code
+                    // design decission do not implement since use case is of little value
+                | CommandSpecifier::Ccs(crate::ClientCommandSpecifier::DownloadSegment) => {
+                    // download segmented or request - aka write --> send abort code
+                    // design decission do not implement since use case is of little value
+                    CanOpenFrameBuilder::sdo_response(self.node_id)
+                        .unwrap()
+                        .with_index(index, subindex)
+                        .abort(SDOAbortCode::UnsupportedAccess)
+                        .build()
+                }
+                CommandSpecifier::Scs(_) => {
+                    // Invalid command specifier in request --> send abort code
+                    CanOpenFrameBuilder::sdo_response(self.node_id)
+                        .unwrap()
+                        .with_index(index, subindex)
+                        .abort(SDOAbortCode::GeneralError)
+                        .build()
+                }
+            };
+            Some(response_frame)
+        } else {
+            None
+        }
+    }
+
+    fn process_segmented(&self, index: u16, subindex: u8, _value: &str) -> CANOpenFrame {
+        // todo
+        // setup the session
+        CanOpenFrameBuilder::sdo_response(self.node_id)
+            .unwrap()
+            .with_index(index, subindex)
+            .abort(SDOAbortCode::ObjectDoesNotExist)
+            .build()
+    }
+
+    fn send_expedited_object_value(
+        &self,
+        index: u16,
+        subindex: u8,
+        value: ValueVariant<'_>,
+    ) -> CANOpenFrame {
+        let mut buffer = [0_u8; 4];
+        let data = value.to_little_endian_buffer(&mut buffer);
+        CanOpenFrameBuilder::sdo_response(self.node_id)
+            .unwrap()
+            .with_index(index, subindex)
+            .download(data)
+            .build()
+    }
 }
-*/
