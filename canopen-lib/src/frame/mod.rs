@@ -85,7 +85,7 @@ impl std::fmt::Display for FrameType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct UnspecificPayload {
     pub length: usize,
     pub data: [u8; 8],
@@ -103,7 +103,7 @@ impl std::fmt::Display for UnspecificPayload {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Payload {
     Unspecific(UnspecificPayload),
     SdoWithIndex(WithIndexPayload),
@@ -121,7 +121,7 @@ impl std::fmt::Display for Payload {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct CANOpenFrame {
     _node_id: u8,
     _frame_type: FrameType,

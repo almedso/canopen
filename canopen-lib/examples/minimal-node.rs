@@ -1,53 +1,71 @@
-use crate::{CANOpenFrame, ObjectDictionary, SdoServer};
-use col::NodeStateMachine;
+use col::{CANOpenFrame, CanOpenError, ObjectDictionaryBuilder, SdoServer};
+use env_logger;
+use log::{debug, error, info};
+// use col::NodeStateMachine;
+use futures_util::StreamExt;
+use std::sync::Arc;
 use tokio::{runtime, spawn};
-use tokio_socketcan::{CANFrame, CANSocket};
+use tokio_socketcan::CANSocket;
 
+use std::future::Future;
+
+fn set_return_type<T, F: Future<Output = T>>(_arg: &F) {}
+
+#[quit::main]
 fn main() {
-    const node_id: u8 = 10;
-    let od = Rc::new(ObjectDictionary::new(0x12, 0x33));
+    env_logger::init();
+    const NODE_ID: u8 = 10;
+    let od = Arc::new(
+        ObjectDictionaryBuilder::new(0x12, 0x33)
+            .device_name("Example node")
+            .hardware_version("Rev.00")
+            .serial_number(0x00_01_00_00)
+            .software_version("0.1.0")
+            .build(NODE_ID),
+    );
 
-    let sdo_server = async {
-        let mut can_socket = match CANSocket::open("can0") {
-            Ok(socket) => socket,
-            Err(error) => {
-                error!("Error opening {}: {}", cli.interface, error);
-                quit::with_code(1);
-                Err(error)
-            }
-        };
-        let server = SdoServer::new(node_id, can_socket, od);
-        while let Some(Ok(frame)) = self.can_socket.next().await {
-            let frame = CANOpenFrame::try_from(frame)?;
-            server.process_complete_sdo_request(frame).await;
-        }
-    };
+    let mut sdo_server = async {
+        let can_socket: CANSocket = CANSocket::open("can0").map_err(|err| {
+            error!("Error opening {}: {}", "can0", err);
+            quit::with_code(1);
+        })?;
 
-    let node_state_machine = async {
-        let mut can_socket = match CANSocket::open("can0") {
-            Ok(socket) => socket,
-            Err(error) => {
-                error!("Error opening {}: {}", cli.interface, error);
-                quit::with_code(1);
-                Err(error)
-            }
-        };
-        let mut sm = NodeStateMachine::new(can_socket, od);
+        info!("Instanciate SDO server");
+        let mut server = SdoServer::new(NODE_ID, can_socket, od);
+        debug!("Enter SDO request servicing");
         loop {
-            sm.operate().await;
+            let frame = server.next_sdo_frame().await;
+            server.process_frame(frame).await;
         }
     };
+
+    set_return_type::<Result<(), CanOpenError>, _>(&sdo_server);
+
+    // let node_state_machine = async {
+    //     let mut can_socket = match CANSocket::open("can0") {
+    //         Ok(socket) => socket,
+    //         Err(error) => {
+    //             error!("Error opening {}: {}", cli.interface, error);
+    //             quit::with_code(1);
+    //         }
+    //     };
+    //     let mut sm = NodeStateMachine::new(can_socket, od);
+    //     loop {
+    //         drate().await;
+    //     }
+    // };
 
     let my_future = async {
-        s = spawn(sdo_server);
-        n = spawn(node_state_machine);
-        s.await();
-        n.await();
+        let s = spawn(sdo_server);
+        // n = spawn(node_state_machine);
+        s.await;
+        // n.await;
     };
-
+    debug!("Create and start async runtime");
     let rt = runtime::Runtime::new().unwrap();
-    rt.block_on(my_future) // tokio async runtime
+    rt.block_on(my_future); // tokio async runtime
+    debug!("Finsh the async runtime");
+    ()
 }
 
 //  https://stackoverflow.com/questions/66863385/how-can-i-use-tokio-to-trigger-a-function-every-period-or-interval-in-seconds
-

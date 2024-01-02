@@ -46,7 +46,7 @@ pub type SdoPayloadData = [u8; 8];
 /// /// Frame type is SdoRx (x600 + node)
 #[derive(IntoPrimitive)]
 #[repr(u8)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ClientCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
     DownloadSegment = 0b_000_00000,
@@ -102,11 +102,10 @@ impl Display for ClientCommandSpecifier {
     }
 }
 
-/// Server command specifier (scs)
-/// Frame type is SdoTx (x580 + node)
+/// Server command specifier (scs)/// Frame type is SdoTx (x580 + node)
 #[derive(IntoPrimitive)]
 #[repr(u8)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ServerCommandSpecifier {
     #[allow(clippy::unusual_byte_groupings)]
     UploadSegment = 0b_000_00000,
@@ -168,7 +167,7 @@ impl Display for ServerCommandSpecifier {
 }
 
 /// Can be either server side command code or client side command code
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CommandSpecifier {
     Ccs(ClientCommandSpecifier),
     Scs(ServerCommandSpecifier),
@@ -379,7 +378,7 @@ impl fmt::Display for SDOError {
 // the toggled flag is ignored
 // the expedited flag is always set
 // data size flag is always set
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct WithIndexPayload {
     pub cs: CommandSpecifier,
     pub size: CommandDataSize,
@@ -389,7 +388,7 @@ pub struct WithIndexPayload {
     pub data: u32,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct WithoutIndexPayload {
     pub cs: CommandSpecifier,
     pub toggle: bool,
@@ -410,7 +409,7 @@ pub enum CommandToggleFlag {
 /// Bit 2 and 3 indicate the number of bits
 #[derive(IntoPrimitive)]
 #[repr(u8)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum CommandDataSize {
     #[allow(clippy::unusual_byte_groupings)]
     OneByte = 0b0000_11_0_1, // 0x0c + 1 indication bit

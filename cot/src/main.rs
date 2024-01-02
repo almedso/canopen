@@ -9,7 +9,7 @@ use hex_slice::AsHex;
 use tokio_socketcan::CANSocket;
 
 use col::{self, sdo_client::SdoClient, util::ValueVariant, CanOpenError, CanOpenFrameBuilder};
-use col::{nodeid_parser, number_parser, pdo_cobid_parser};
+use col::{nodeid_parser, pdo_cobid_parser};
 use parse_int::parse;
 
 use std::time::Instant;

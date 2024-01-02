@@ -57,7 +57,7 @@ use crate::CommandSpecifier;
 use crate::ValueVariant;
 use crate::WithIndexPayload;
 use crate::{CANOpenFrame, FrameType, Payload, SDOAbortCode};
-use std::rc::Rc;
+use std::sync::Arc;
 
 // std/no-std dependent dependent
 use futures_util::stream::StreamExt;
@@ -78,16 +78,16 @@ pub struct SdoSession {
 pub struct SdoServer<'a> {
     node_id: u8,
     can_socket: CANSocket,
-    object_dictionary: Rc<ObjectDictionary<'a>>,
+    object_dictionary: Arc<ObjectDictionary<'a>>,
     session: SdoSession,
 }
 
 struct IndexedPayloadError;
 
-fn cast_indexed_payload_to_value_variant<'a>(
+fn cast_indexed_payload_to_value_variant(
     object_value: ValueVariant<'_>,
-    payload: &'a WithIndexPayload,
-) -> Result<ValueVariant<'a>, IndexedPayloadError> {
+    payload: WithIndexPayload,
+) -> Result<ValueVariant<'_>, IndexedPayloadError> {
     match object_value {
         ValueVariant::F32(_) => {
             if payload.size == CommandDataSize::FourBytes {
@@ -168,7 +168,7 @@ impl<'a> SdoServer<'a> {
     pub fn new(
         node_id: u8,
         can_socket: CANSocket,
-        object_dictionary: Rc<ObjectDictionary<'a>>,
+        object_dictionary: Arc<ObjectDictionary<'a>>,
     ) -> Self {
         if node_id > 0x7F {
             panic!("node_id is out of allowed range [0..0x7F] {:?}", node_id);
@@ -222,7 +222,7 @@ impl<'a> SdoServer<'a> {
     ///    session
     /// - `CanOpenError::SdoTransferTimeout` - if the Request was aborted due to a missing request
     /// - `CanOpenError::ObjectDoesNotExist`
-    pub async fn process_frame(&self, frame: &'a CANOpenFrame) -> Result<(), CanOpenError> {
+    pub async fn process_frame(&self, frame: CANOpenFrame) -> Result<(), CanOpenError> {
         if frame.node_id() == self.node_id && frame.frame_type() == FrameType::SdoRx {
             let response = self.process_frame_with_index(frame);
             self.process_frame_without_index(frame);
@@ -239,7 +239,7 @@ impl<'a> SdoServer<'a> {
         Ok(())
     }
 
-    fn process_frame_without_index(&self, frame: &CANOpenFrame) {
+    fn process_frame_without_index(&self, frame: CANOpenFrame) {
         if let Payload::SdoWithoutIndex(payload) = &frame.payload {
             // no index and subindex; Data bigger than 4 byte -> segmented response is required
             if self.session == Default::default() {
@@ -255,15 +255,15 @@ impl<'a> SdoServer<'a> {
         }
     }
 
-    fn process_frame_with_index(&self, frame: &'a CANOpenFrame) -> Option<CANOpenFrame> {
-        if let Payload::SdoWithIndex(payload) = &frame.payload {
+    fn process_frame_with_index(&self, frame: CANOpenFrame) -> Option<CANOpenFrame> {
+        if let Payload::SdoWithIndex(payload) = frame.payload {
             let index = payload.index;
             let subindex = payload.subindex;
             let response_frame = match payload.cs {
                 CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Download) => {
                     // download expedited request - aka write
                     if let Ok(object) = self.object_dictionary.get_object_value(index, subindex) {
-                        if let Ok(value) = cast_indexed_payload_to_value_variant(object, &payload) {
+                        if let Ok(value) = cast_indexed_payload_to_value_variant(object, payload) {
                             match self.object_dictionary
                                 .download_expedited(index, subindex, value)
                                 .map_err(|error| match error {
