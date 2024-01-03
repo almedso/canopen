@@ -230,6 +230,30 @@ fn convert<'a>(
             let v = value.parse::<u8>().map_err(|_| ArgumentError {})?;
             Ok(ValueVariant::U8(v))
         }
+        ValueType::U16 => {
+            let v = value.parse::<u16>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::U16(v))
+        }
+        ValueType::U32 => {
+            let v = value.parse::<u32>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::U32(v))
+        }
+        ValueType::I8 => {
+            let v = value.parse::<i8>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::I8(v))
+        }
+        ValueType::I16 => {
+            let v = value.parse::<i16>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::I16(v))
+        }
+        ValueType::I32 => {
+            let v = value.parse::<i32>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::I32(v))
+        }
+        ValueType::F32 => {
+            let v = value.parse::<f32>().map_err(|_| ArgumentError {})?;
+            Ok(ValueVariant::F32(v))
+        }
         _ => Ok(ValueVariant::S(&value[..])),
     }
 }
@@ -321,7 +345,7 @@ fn main() {
                     }
                 };
                 let data = variant.to_little_endian_buffer(&mut buffer);
-                debug!("Raw Buffer: {:?}", data);
+                debug!("Variant: {:?}, Raw Buffer: {:?}", variant, data);
                 match sdo_client.write_object(*index, *subindex, data).await {
                     Ok(()) => {
                         println!("Success");

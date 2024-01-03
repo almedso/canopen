@@ -218,45 +218,17 @@ impl WithIndexFrameBuilder {
         self
     }
 
-    pub fn download(mut self, data: &[u8]) -> Self {
+    pub fn download_expedited_response(mut self, data: &[u8]) -> Self {
         self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Download);
-        match data.len() {
-            4 => {
-                self.size = CommandDataSize::FourBytes;
-                self.data = data[0] as u32;
-                self.data += (data[1] as u32) << 8;
-                self.data += (data[2] as u32) << 16;
-                self.data += (data[3] as u32) << 24;
-            }
-            3 => {
-                self.size = CommandDataSize::ThreeBytes;
-                self.data = data[0] as u32;
-                self.data += (data[1] as u32) << 8;
-                self.data += (data[2] as u32) << 16;
-            }
-            2 => {
-                self.size = CommandDataSize::TwoBytes;
-                self.data = data[0] as u32;
-                self.data += (data[1] as u32) << 8;
-            }
-            1 => {
-                self.size = CommandDataSize::OneByte;
-                self.data = data[0] as u32;
-            }
-            0 => {
-                self.size = CommandDataSize::NotSet;
-                self.data = 0;
-            }
-            _ => panic!(
-                "More than four byte data is not allowed for a sdo frame with index/subindex"
-            ),
-        }
-        self.expedited_flag = true;
-        self
+        self.set_data_and_length_for_expedited(data)
     }
 
     pub fn upload_expedited_response(mut self, data: &[u8]) -> Self {
         self.command_specifier = CommandSpecifier::Ccs(ClientCommandSpecifier::Upload);
+        self.set_data_and_length_for_expedited(data)
+    }
+
+    fn set_data_and_length_for_expedited(mut self, data: &[u8]) -> Self {
         match data.len() {
             4 => {
                 self.size = CommandDataSize::FourBytes;

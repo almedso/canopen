@@ -1,8 +1,9 @@
+use clap::Parser;
 use col::{CANOpenFrame, CanOpenError, ObjectDictionaryBuilder, SdoServer};
 use env_logger;
 use log::{debug, error, info};
 // use col::NodeStateMachine;
-use futures_util::StreamExt;
+// use futures_util::StreamExt;
 use std::sync::Arc;
 use tokio::{runtime, spawn};
 use tokio_socketcan::CANSocket;
@@ -10,6 +11,14 @@ use tokio_socketcan::CANSocket;
 use std::future::Future;
 
 fn set_return_type<T, F: Future<Output = T>>(_arg: &F) {}
+
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+struct Cli {
+    /// CAN interface to read from, write to
+    #[clap(short, long, default_value_t = String::from("vcan0"))]
+    interface: String,
+}
 
 #[quit::main]
 fn main() {
@@ -24,9 +33,10 @@ fn main() {
             .build(NODE_ID),
     );
 
-    let mut sdo_server = async {
-        let can_socket: CANSocket = CANSocket::open("can0").map_err(|err| {
-            error!("Error opening {}: {}", "can0", err);
+    let sdo_server = async {
+        let cli = Cli::parse();
+        let can_socket: CANSocket = CANSocket::open(&cli.interface).map_err(|err| {
+            error!("Error opening {}: {}", cli.interface, err);
             quit::with_code(1);
         })?;
 

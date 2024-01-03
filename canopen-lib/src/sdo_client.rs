@@ -310,11 +310,11 @@ impl SdoClient {
         data: &[u8],
     ) -> Result<(), CanOpenError> {
         let worker = async {
-            debug!("Send download request");
+            debug!("Send download request {},{} {:?}", index, subindex, data);
             let builder = CanOpenFrameBuilder::sdo_request(self.node_id)
                 .unwrap()
                 .with_index(index, subindex)
-                .download(data);
+                .download_expedited_response(data);
             let frame = builder.build().into();
             self.can_socket
                 .write_frame(frame)

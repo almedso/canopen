@@ -61,7 +61,7 @@ use std::sync::Arc;
 
 // std/no-std dependent dependent
 use futures_util::stream::StreamExt;
-use log::debug;
+use log::{debug, info};
 use tokio_socketcan::CANSocket; // for reading next  from can socket
 
 #[derive(Default, PartialEq)]
@@ -264,6 +264,7 @@ impl<'a> SdoServer<'a> {
                     // download expedited request - aka write
                     if let Ok(object) = self.object_dictionary.get_object_value(index, subindex) {
                         if let Ok(value) = cast_indexed_payload_to_value_variant(object, payload) {
+                            debug!("Download expedited - aka write up to 4 bytes");
                             match self.object_dictionary
                                 .download_expedited(index, subindex, value)
                                 .map_err(|error| match error {
@@ -308,6 +309,7 @@ impl<'a> SdoServer<'a> {
                         .build()
                 }
                 CommandSpecifier::Ccs(crate::ClientCommandSpecifier::Upload) => {
+                    debug!("Upload expedited - aka read up to 4 bytes");
                     match  self.object_dictionary.upload(index, subindex).map_err(|error| match error {
                         CanOpenError::ObjectDoesNotExist { index: _, subindex: _ } =>  SDOAbortCode::ObjectDoesNotExist,
                         CanOpenError::ReadAccessImpossible => SDOAbortCode::WriteReadOnlyError,
@@ -382,7 +384,7 @@ impl<'a> SdoServer<'a> {
         CanOpenFrameBuilder::sdo_response(self.node_id)
             .unwrap()
             .with_index(index, subindex)
-            .download(data)
+            .upload_expedited_response(data)
             .build()
     }
 }
